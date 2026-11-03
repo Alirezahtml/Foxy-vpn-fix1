@@ -1,0 +1,6 @@
+{
+  "name": "FoxyVpn",
+  "description": "FoxyVpn with Slide-to-Connect, 3-Language Localization, and Customizable Dynamic Island",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

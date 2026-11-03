@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <size android:width="72dp" android:height="72dp" />
+            <solid android:color="#0A0D14" />
+            <stroke android:width="1.5dp" android:color="#00B4FF" />
+        </shape>
+    </item>
+    <item
+        android:drawable="@drawable/foxy_official_icon"
+        android:gravity="center"
+        android:top="4dp"
+        android:bottom="4dp"
+        android:left="4dp"
+        android:right="4dp" />
+</layer-list>

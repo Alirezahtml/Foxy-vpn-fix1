@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">FoxyVpn</string>
+    <string name="quick_connect">FoxyVpn</string>
+    <string name="quick_connect_connected">Connected</string>
+    <string name="quick_connect_connecting">Connecting\u2026</string>
+    <string name="quick_connect_disconnected">Disconnected</string>
+    <string name="quick_connect_widget_desc">FoxyVpn Quick Connect Widget</string>
+    <string name="disconnect">Disconnect</string>
+</resources>

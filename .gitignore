@@ -1,0 +1,25 @@
+*.iml
+.gradle/
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+app/build/
+app/libs/*.aar
+*.apk
+*.aab
+*.keystore
+*.jks
+keystore.properties
+app/src/main/jni/
+
+# Private files
+.env
+local.properties
+*.jks
+*.keystore
+.kotlin/
+**/build/

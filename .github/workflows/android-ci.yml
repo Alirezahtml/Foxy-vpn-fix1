@@ -1,0 +1,146 @@
+name: Android CI / CD (Auto Multi-ABI & Universal APK Release)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: foxyvpn-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deliver:
+    name: Build & Deliver Multi-CPU + Universal Signed APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configure Android SDK & Licenses
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_DIR/licenses"
+          printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n85435445a95c234340d05367a999a69d7b46701c\n" > "$SDK_DIR/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
+          printf "\nd975f751698a77b662f1254ddbeed3901e976f5a\n" > "$SDK_DIR/licenses/intel-android-extra-license"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          SDKMANAGER=$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            chmod +x "$SDKMANAGER" || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;30.0.16248370"
+          fi
+          echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/30.0.16248370" >> "$GITHUB_ENV"
+
+      - name: Fetch & Verify Sing-Box MASQUE Core (libbox.aar)
+        run: |
+          mkdir -p app/libs
+          LIBBOX_URL="https://github.com/Vauth/sing-box/releases/download/v1.15.0-foxy-masque.2/libbox.aar"
+          EXPECTED_SHA256="f1b59f4fab207b4c19f8ea3d145bc4dd0e834a530081d0dc045f4b795d6eac0b"
+          if [ ! -f "app/libs/libbox.aar" ] || [ "$(sha256sum app/libs/libbox.aar | awk '{print $1}')" != "$EXPECTED_SHA256" ]; then
+            curl -fL --retry 3 "$LIBBOX_URL" -o app/libs/libbox.aar
+          fi
+          echo "$EXPECTED_SHA256  app/libs/libbox.aar" | sha256sum -c -
+
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Prepare Signing Keystores (Automatic Fallback)
+        id: signing
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        run: |
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -f "debug.keystore" ]; then
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ] && [ -n "$SIGNING_KEY_ALIAS" ]; then
+            printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > release-keystore.jks
+            echo "KEY_ALIAS=$SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=$SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            cp debug.keystore release-keystore.jks
+            echo "KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=android" >> "$GITHUB_ENV"
+          fi
+
+      - name: Assemble Multi-ABI & Universal Signed APKs
+        env:
+          SIGNING_KEY_ALIAS: ${{ env.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
+        run: |
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease -PenableAbiSplits=true -Pandroid.builder.sdkDownload=true --no-daemon --stacktrace
+          mkdir -p dist
+          for apk in app/build/outputs/apk/release/*.apk; do
+            [ -e "$apk" ] || continue
+            base=$(basename "$apk")
+            out_name="FoxyVPN-Neu-${base#app-}"
+            cp "$apk" "dist/$out_name"
+          done
+          if [ -f "dist/FoxyVPN-Neu-universal-release.apk" ]; then
+            cp "dist/FoxyVPN-Neu-universal-release.apk" "dist/FoxyVPN-Neu-release.apk"
+          fi
+          for dapk in app/build/outputs/apk/debug/*universal*.apk app/build/outputs/apk/debug/*.apk; do
+            if [ -e "$dapk" ]; then
+              cp "$dapk" "dist/FoxyVPN-Neu-debug.apk"
+              break
+            fi
+          done
+          ls -lh dist/
+
+      - name: Clean Temporary Keystore
+        if: always()
+        run: rm -f release-keystore.jks
+
+      - name: Upload Multi-ABI & Universal APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoxyVPN-Neu-MultiABI-APKs
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Multi-ABI & Universal APKs to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest-apk' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'FoxyVPN Neu - Multi-CPU & Universal APKs (Latest Build)' }}
+          body: |
+            ### FoxyVPN Neu (Soft Neumorphism • Dynamic Island • Telegram SOCKS5 Proxy)
+            - **Package ID:** `com.vauth.foxyvpn.neu`
+            - **Available APK Variants:**
+              - `FoxyVPN-Neu-universal-release.apk` / `FoxyVPN-Neu-release.apk` — **نسخه جامع برای همه پردازنده‌ها (Universal All-CPU)**
+              - `FoxyVPN-Neu-arm64-v8a-release.apk` — **مخصوص پردازنده‌های ۶۴ بیتی مدرن (ARM64-v8a)**
+              - `FoxyVPN-Neu-armeabi-v7a-release.apk` — **مخصوص پردازنده‌های ۳۲ بیتی قدیمی‌تر (ARMv7a)**
+              - `FoxyVPN-Neu-x86_64-release.apk` — **مخصوص پردازنده‌های ۶۴ بیتی اینتل/AMD و شبیه‌سازها (x86_64)**
+              - `FoxyVPN-Neu-x86-release.apk` — **مخصوص پردازنده‌های ۳۲ بیتی x86**
+          files: |
+            dist/*.apk
+          prerelease: false
+          make_latest: true
