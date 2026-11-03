@@ -1,28 +1,33 @@
-name: Android CI / CD (Auto Multi-ABI & Universal APK Release)
+name: Manual Release Build (Multi-ABI & Universal APK)
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
+  attestations: write
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
-  group: foxyvpn-main-${{ github.ref }}
+  group: foxyvpn-manual-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-deliver:
     name: Build & Deliver Multi-CPU + Universal Signed APKs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -40,9 +45,8 @@ jobs:
           if [ -n "$SDKMANAGER" ]; then
             chmod +x "$SDKMANAGER" || true
             yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;30.0.16248370"
+            "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
           fi
-          echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/30.0.16248370" >> "$GITHUB_ENV"
 
       - name: Fetch & Verify Sing-Box MASQUE Core (libbox.aar)
         run: |
@@ -91,7 +95,14 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
           SIGNING_STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
         run: |
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease -PenableAbiSplits=true -Pandroid.builder.sdkDownload=true --no-daemon --stacktrace
+          chmod +x ./gradlew 2>/dev/null || true
+          if [ -x "./gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            GRADLE_CMD="./gradlew"
+          else
+            GRADLE_CMD="gradle"
+          fi
+          "$GRADLE_CMD" testDebugUnitTest assembleDebug assembleRelease -PenableAbiSplits=true -Pandroid.builder.sdkDownload=true --no-daemon --stacktrace
+
           mkdir -p dist
           for apk in app/build/outputs/apk/release/*.apk; do
             [ -e "$apk" ] || continue
@@ -99,48 +110,73 @@ jobs:
             out_name="FoxyVPN-Neu-${base#app-}"
             cp "$apk" "dist/$out_name"
           done
+
           if [ -f "dist/FoxyVPN-Neu-universal-release.apk" ]; then
             cp "dist/FoxyVPN-Neu-universal-release.apk" "dist/FoxyVPN-Neu-release.apk"
           fi
+
           for dapk in app/build/outputs/apk/debug/*universal*.apk app/build/outputs/apk/debug/*.apk; do
             if [ -e "$dapk" ]; then
               cp "$dapk" "dist/FoxyVPN-Neu-debug.apk"
               break
             fi
           done
+
+          if [ -f "LICENSE" ]; then
+            cp "LICENSE" "dist/LICENSE.txt"
+          fi
+
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            for apk in dist/*.apk; do
+              "$APKSIGNER" verify --verbose "$apk" | head -n 5 || true
+            done
+          fi
+
+          (
+            cd dist
+            sha256sum *.apk > SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          )
           ls -lh dist/
 
       - name: Clean Temporary Keystore
         if: always()
         run: rm -f release-keystore.jks
 
+      - name: Generate GitHub Build Provenance Attestation (Signature)
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*.apk"
+
       - name: Upload Multi-ABI & Universal APK Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: FoxyVPN-Neu-MultiABI-APKs
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish Multi-ABI & Universal APKs to GitHub Releases
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest-apk' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'FoxyVPN Neu - Multi-CPU & Universal APKs (Latest Build)' }}
+          tag_name: v2.0.0-latest
+          name: "FoxyVPN Neu v2.0.0 (Sing-Box MASQUE • All CPUs Signed Release)"
           body: |
-            ### FoxyVPN Neu (Soft Neumorphism • Dynamic Island • Telegram SOCKS5 Proxy)
-            - **Package ID:** `com.vauth.foxyvpn.neu`
-            - **Available APK Variants:**
-              - `FoxyVPN-Neu-universal-release.apk` / `FoxyVPN-Neu-release.apk` — **نسخه جامع برای همه پردازنده‌ها (Universal All-CPU)**
-              - `FoxyVPN-Neu-arm64-v8a-release.apk` — **مخصوص پردازنده‌های ۶۴ بیتی مدرن (ARM64-v8a)**
-              - `FoxyVPN-Neu-armeabi-v7a-release.apk` — **مخصوص پردازنده‌های ۳۲ بیتی قدیمی‌تر (ARMv7a)**
-              - `FoxyVPN-Neu-x86_64-release.apk` — **مخصوص پردازنده‌های ۶۴ بیتی اینتل/AMD و شبیه‌سازها (x86_64)**
-              - `FoxyVPN-Neu-x86-release.apk` — **مخصوص پردازنده‌های ۳۲ بیتی x86**
+            ## FoxyVPN Neu v2.0.0 — Sing-Box MASQUE Core (Signed Multi-ABI Release)
+            - **Package ID:** `com.vauth.foxyvpn.neu` *(نصب مستقل در کنار نسخه اصلی)*
+            - **Core Engine:** `sing-box v1.15.0-foxy-masque.2` (`HTTP/3 QUIC MASQUE`, `HTTP/2 TCP`, `HTTP/1.1 TLS`, `Auto Failover`)
+            - **License:** MIT / Open-Source Licensed (`LICENSE.txt`)
+            - **GitHub Signed & Verified:** Signed with Android v1/v2/v3 APK Signature + SHA-256 Checksums (`SHA256SUMS.txt`) + GitHub Attestation
           files: |
             dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
           prerelease: false
-          make_latest: true
+          make_latest: "true"

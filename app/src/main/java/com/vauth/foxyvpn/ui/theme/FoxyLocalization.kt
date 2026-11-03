@@ -194,11 +194,15 @@ fun AppLanguage.formatMinutesLocalized(minutes: Int): String {
  * Translates common country names or codes into Persian/Arabic when FA/AR is active.
  */
 fun AppLanguage.localizeCountryName(rawName: String, countryCode: String = ""): String {
-    if (this == AppLanguage.EN) return rawName.ifBlank { countryCode }
     val code = countryCode.uppercase(Locale.US).trim()
     val norm = rawName.trim().lowercase(Locale.US)
+    if (this == AppLanguage.EN) {
+        if (code == "IR" || code == "IRN" || norm == "ir" || norm.contains("iran")) return "Iran"
+        return rawName.ifBlank { countryCode }
+    }
     if (this == AppLanguage.FA) {
         return when {
+            code == "IR" || code == "IRN" || norm == "ir" || norm.contains("iran") -> "ایران"
             code == "US" || norm.contains("united states") || norm == "usa" -> "ایالات متحده"
             code == "DE" || norm.contains("germany") -> "آلمان"
             code == "NL" || norm.contains("netherlands") -> "هلند"
@@ -234,6 +238,7 @@ fun AppLanguage.localizeCountryName(rawName: String, countryCode: String = ""): 
         }
     } else {
         return when {
+            code == "IR" || code == "IRN" || norm == "ir" || norm.contains("iran") -> "إيران"
             code == "US" || norm.contains("united states") || norm == "usa" -> "الولايات المتحدة"
             code == "DE" || norm.contains("germany") -> "ألمانيا"
             code == "NL" || norm.contains("netherlands") -> "هولندا"
@@ -257,7 +262,7 @@ fun AppLanguage.localizeCountryName(rawName: String, countryCode: String = ""): 
             code == "RO" || norm.contains("romania") -> "رومانيا"
             code == "BG" || norm.contains("bulgaria") -> "بلغاريا"
             code == "AU" || norm.contains("australia") -> "أستراليا"
-            code == "NZ" || norm.contains("new zealand") -> "نيوزيلندا"
+            code == "NZ" || norm.contains("new zealand") -> "نيوزيلند"
             code == "BR" || norm.contains("brazil") -> "البرازيل"
             code == "TR" || norm.contains("turkey") -> "تركيا"
             code == "AE" || norm.contains("emirates") -> "الإمارات"

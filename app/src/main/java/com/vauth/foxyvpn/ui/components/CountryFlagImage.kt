@@ -43,6 +43,7 @@ fun CountryFlagImage(
         "GB", "UK" -> R.drawable.flag_gb
         "GH" -> R.drawable.flag_gh
         "IE" -> R.drawable.flag_ie
+        "IR", "IRN", "IRAN" -> R.drawable.flag_ir
         "IT" -> R.drawable.flag_it
         "JP" -> R.drawable.flag_jp
         "KR" -> R.drawable.flag_kr

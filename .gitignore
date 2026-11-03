@@ -23,3 +23,5 @@ local.properties
 *.keystore
 .kotlin/
 **/build/
+.build-outputs/
+public/assets/aistudio/

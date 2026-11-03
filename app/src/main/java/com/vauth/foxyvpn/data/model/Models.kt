@@ -87,6 +87,7 @@ fun countryCodeToEmojiFlag(countryCode: String): String {
     if (countryCode.equals("REC", ignoreCase = true)) return ""
     if (countryCode.length != 2) return ""
     val upper = countryCode.uppercase()
+    if (upper == "IR") return "🦁☀️"
     val first = upper[0]
     val second = upper[1]
     if (first !in 'A'..'Z' || second !in 'A'..'Z') return "🌐"

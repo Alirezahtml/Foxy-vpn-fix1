@@ -2703,25 +2703,6 @@ fun SettingsScreen(
                                                                 )
                                                                 HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 8.dp))
 
-                                                                SettingToggleRow(
-                                                                    title = when (s.language) {
-                                                                        AppLanguage.FA -> "پرچم کشور"
-                                                                        AppLanguage.AR -> "علم الدولة"
-                                                                        AppLanguage.EN -> "Country Flag"
-                                                                    },
-                                                                    subtitle = when (s.language) {
-                                                                        AppLanguage.FA -> "کلید روشن/خاموش نمایش پرچم کشور سرور در داینامیک آیلند"
-                                                                        AppLanguage.AR -> "مفتاح تشغيل/إيقاف علم الدولة في الجزيرة التفاعلية"
-                                                                        AppLanguage.EN -> "Toggle server country flag visibility in Dynamic Island"
-                                                                    },
-                                                                    checked = dynamicIslandShowFlag,
-                                                                    onCheckedChange = {
-                                                                        dynamicIslandShowFlag = it
-                                                                        settingsStore.dynamicIslandShowFlag = it
-                                                                    },
-                                                                )
-                                                                HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 8.dp))
-
                                                                 val badgeItems = listOf(
                                                                     Triple(
                                                                         when (s.language) {
@@ -3655,27 +3636,6 @@ fun SettingsScreen(
                                                             },
                                                         )
                                                         HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 8.dp))
-                                                        val canInstallPackages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                            runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
-                                                        } else {
-                                                            true
-                                                        }
-                                                        SettingClickableRow(
-                                                            title = s.installPermissionTitle,
-                                                            value = if (canInstallPackages) s.installPermissionGrantedSub else s.installPermissionRequestSub,
-                                                            onClick = {
-                                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                                    runCatching {
-                                                                        val intent = Intent(
-                                                                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                                                            Uri.parse("package:${context.packageName}"),
-                                                                        )
-                                                                        context.startActivity(intent)
-                                                                    }
-                                                                }
-                                                            },
-                                                        )
-                                                        HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 8.dp))
                                                         SettingClickableRow(
                                                             title = when (s.language) {
                                                                 AppLanguage.FA -> "محافظت پس‌زمینه رام‌ها (MIUI / OneUI / Android 10+)"
@@ -4246,17 +4206,6 @@ fun SettingsScreen(
                                                                 onClick = {},
                                                             )
                                                             HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 10.dp))
-                                                            val activeCpuAbi = remember { Build.SUPPORTED_ABIS.firstOrNull() ?: "universal" }
-                                                            SettingClickableRow(
-                                                                title = when (s.language) {
-                                                                    AppLanguage.FA -> "معماری پردازنده و بیلدهای منتشرشده"
-                                                                    AppLanguage.AR -> "معمارية المعالج والنسخ المنشورة"
-                                                                    AppLanguage.EN -> "CPU ABI & Multi-Arch Releases"
-                                                                },
-                                                                value = "$activeCpuAbi + Universal APK",
-                                                                onClick = {},
-                                                            )
-                                                            HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 10.dp))
                                                             SettingSocialLinkRow(
                                                                 title = s.instagramTitle,
                                                                 value = s.instagramSubtitle,
@@ -4296,20 +4245,6 @@ fun SettingsScreen(
                                                                         }
                                                                     }
                                                                 },
-                                                            )
-                                                            HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 10.dp))
-                                                            SettingClickableRow(
-                                                                title = when (s.language) {
-                                                                    AppLanguage.FA -> "وضعیت اسپانسر پروکسی تلگرام"
-                                                                    AppLanguage.AR -> "حالة القنوات الراعية في تيليجرام"
-                                                                    AppLanguage.EN -> "Telegram Proxy Sponsor Policy"
-                                                                },
-                                                                value = when (s.language) {
-                                                                    AppLanguage.FA -> "۱۰۰٪ بدون کانال اسپانسر (Loopback)"
-                                                                    AppLanguage.AR -> "بدون قنوات إعلانية راعية ١٠٠٪"
-                                                                    AppLanguage.EN -> "100% Zero Sponsor Channels"
-                                                                },
-                                                                onClick = {},
                                                             )
                                                         }
                                                     }

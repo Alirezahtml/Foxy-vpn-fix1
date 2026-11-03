@@ -666,6 +666,7 @@ private fun SpeedMetricTile(
     value: String,
     accent: Color,
     modifier: Modifier = Modifier,
+    countryCode: String? = null,
 ) {
     val neu = currentNeumorphicColors
     val s = currentFoxyStrings
@@ -681,16 +682,30 @@ private fun SpeedMetricTile(
             .padding(horizontal = 14.dp, vertical = 14.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = if (s.isRtl) 0.sp else 0.6.sp,
-                    lineHeight = 18.sp,
-                ),
-                color = neu.textSecondary,
-                maxLines = 2,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = if (s.isRtl) 0.sp else 0.6.sp,
+                        lineHeight = 18.sp,
+                    ),
+                    color = neu.textSecondary,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!countryCode.isNullOrBlank() && countryCode != "—") {
+                    Spacer(Modifier.width(6.dp))
+                    CountryFlagImage(
+                        countryCode = countryCode,
+                        modifier = Modifier.size(width = 22.dp, height = 16.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = value,
@@ -921,6 +936,7 @@ private fun LeakInspectorToolPanel(app: FoxyVpnApp) {
                             s.language.localizeDigits("${it.ip}\n(${s.language.localizeCountryName(it.country, it.country)})")
                         } ?: s.checking,
                         accent = neu.textPrimary,
+                        countryCode = directTrace?.country,
                         modifier = Modifier.weight(1f),
                     )
                     SpeedMetricTile(
@@ -933,6 +949,7 @@ private fun LeakInspectorToolPanel(app: FoxyVpnApp) {
                             s.leakNotConnected
                         },
                         accent = if (isConnected) statusColors.connected else MaterialTheme.colorScheme.error,
+                        countryCode = if (isConnected) tunnelTrace?.country else null,
                         modifier = Modifier.weight(1f),
                     )
                 }

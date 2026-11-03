@@ -117,12 +117,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.CircularProgressIndicator
 import com.vauth.foxyvpn.FoxyVpnApp
 import com.vauth.foxyvpn.R
+import com.vauth.foxyvpn.data.ConnectionProtocolMode
 import com.vauth.foxyvpn.data.GUARDIAN_ENDPOINT_DEFAULT
 import com.vauth.foxyvpn.data.RECOMMENDED_COUNTRY_CODE
 import com.vauth.foxyvpn.data.CustomAppPalette
 import com.vauth.foxyvpn.data.ServerListClient
+import com.vauth.foxyvpn.data.SettingsStore
 import com.vauth.foxyvpn.data.model.ConnectionState
 import com.vauth.foxyvpn.data.model.ProxyCandidate
 import com.vauth.foxyvpn.ui.components.DynamicIsland
@@ -966,7 +975,7 @@ fun HomeScreen(
 
                 Spacer(Modifier.height(18.dp))
 
-                // 7. SERVER LOCATION CARD (with Animated Live Status Ring & Flag Bounce)
+                // 7. SERVER LOCATION CARD (with Animated Live Status Ring, Auto-Best Server Lightning Action & Quick Protocol Bar)
                 val serverCardInfinite = rememberInfiniteTransition(label = "server-card-pulse")
                 val serverRingPulse by serverCardInfinite.animateFloat(
                     initialValue = 0.92f,
@@ -978,6 +987,11 @@ fun HomeScreen(
                     label = "server-ring-scale",
                 )
                 val serverActiveColor = if (state == ConnectionState.CONNECTED) statusColors.connected else neu.accent
+                var isFindingBestServer by remember { mutableStateOf(false) }
+                val configRevForProto by app.settingsStore.islandConfigRevision.collectAsState()
+                var activeProtocolMode by remember(configRevForProto) {
+                    mutableStateOf(app.settingsStore.connectionProtocolMode)
+                }
 
                 NeumorphicCard(
                     onClick = onOpenServers,
@@ -987,100 +1001,232 @@ fun HomeScreen(
                         .neumorphicTouchBounce(),
                     cornerRadius = 22.dp,
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
                     ) {
-                        if (selectedProxy != null) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .graphicsLayer {
-                                        scaleX = serverRingPulse
-                                        scaleY = serverRingPulse
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CountryFlagImage(
-                                    countryCode = selectedProxy?.countryCode,
-                                    modifier = Modifier.size(width = 38.dp, height = 29.dp),
-                                )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier.size(50.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (selectedProxy != null) {
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
+                                        .size(46.dp)
                                         .graphicsLayer {
                                             scaleX = serverRingPulse
                                             scaleY = serverRingPulse
-                                        }
-                                        .clip(CircleShape)
-                                        .background(serverActiveColor.copy(alpha = 0.12f)),
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(neu.surfaceElevated)
-                                        .border(1.2.dp, serverActiveColor.copy(alpha = 0.42f), CircleShape),
+                                        },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    com.vauth.foxyvpn.ui.theme.FoxySpeedometerIcon(
+                                    CountryFlagImage(
+                                        countryCode = selectedProxy?.countryCode,
+                                        modifier = Modifier.size(width = 38.dp, height = 29.dp),
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier.size(50.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .graphicsLayer {
+                                                scaleX = serverRingPulse
+                                                scaleY = serverRingPulse
+                                            }
+                                            .clip(CircleShape)
+                                            .background(serverActiveColor.copy(alpha = 0.12f)),
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(neu.surfaceElevated)
+                                            .border(1.2.dp, serverActiveColor.copy(alpha = 0.42f), CircleShape),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        com.vauth.foxyvpn.ui.theme.FoxySpeedometerIcon(
+                                            tint = neu.accent,
+                                            needleTint = serverActiveColor,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = s.serverLocationLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = fonts.headingFont,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = if (s.isRtl) 0.sp else 0.9.sp,
+                                    ),
+                                    color = neu.textSecondary,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = selectedProxy?.let {
+                                        val countryLabel = s.language.localizeCountryName(it.countryName, it.countryCode)
+                                        if (it.cityCode.isNotBlank()) "$countryLabel (${it.cityCode.uppercase()})" else countryLabel
+                                    } ?: s.recommendedFastest,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontFamily = fonts.headingFont,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
+                                    color = neu.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            // Quick Auto-Best Server Lightning Action (⚡)
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(neu.accent.copy(alpha = 0.14f))
+                                    .border(1.dp, neu.accent.copy(alpha = 0.35f), CircleShape)
+                                    .clickable(enabled = !isFindingBestServer) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        scope.launch {
+                                            isFindingBestServer = true
+                                            val countries = app.serverListClient.loadCachedCountries()
+                                            val candidates = countries.flatMap { c ->
+                                                ServerListClient.candidatesForCountry(
+                                                    countries,
+                                                    c.code,
+                                                    app.settingsStore.connectionProtocolMode,
+                                                ).take(1)
+                                            }.take(10)
+                                            var bestCandidate: ProxyCandidate? = null
+                                            var bestRtt = Int.MAX_VALUE
+                                            for (cand in candidates) {
+                                                val rtt = PingUtil.measureTcpLatencyMs(cand.host, cand.port)
+                                                if (rtt != null && rtt < bestRtt) {
+                                                    bestRtt = rtt
+                                                    bestCandidate = cand
+                                                }
+                                            }
+                                            if (bestCandidate != null) {
+                                                app.proxyStateStore.save(bestCandidate)
+                                                disconnectedPingLatency = bestRtt
+                                                if (state == ConnectionState.CONNECTED) {
+                                                    FoxyVpnService.reconnect(app)
+                                                }
+                                                Toast.makeText(
+                                                    app,
+                                                    when (s.language) {
+                                                        FoxyLanguage.FA -> "بهترین سرور انتخاب شد: ${s.language.localizeCountryName(bestCandidate.countryName, bestCandidate.countryCode)} (${bestRtt}ms)"
+                                                        FoxyLanguage.AR -> "تم اختيار أسرع خادم: ${s.language.localizeCountryName(bestCandidate.countryName, bestCandidate.countryCode)} (${bestRtt}ms)"
+                                                        FoxyLanguage.EN -> "Fastest server selected: ${bestCandidate.countryName} (${bestRtt}ms)"
+                                                    },
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                            isFindingBestServer = false
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isFindingBestServer) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = neu.accent,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.Bolt,
+                                        contentDescription = "Auto Best Server",
                                         tint = neu.accent,
-                                        needleTint = serverActiveColor,
-                                        modifier = Modifier.size(24.dp),
+                                        modifier = Modifier.size(19.dp),
                                     )
                                 }
                             }
+
+                            Spacer(Modifier.width(8.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(neu.surfaceElevated),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = s.islandChangeServer,
+                                    tint = serverActiveColor,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
 
-                        Spacer(Modifier.width(16.dp))
+                        Spacer(Modifier.height(12.dp))
+                        HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.12f))
+                        Spacer(Modifier.height(10.dp))
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = s.serverLocationLabel,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily = fonts.headingFont,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = if (s.isRtl) 0.sp else 0.9.sp,
-                                ),
-                                color = neu.textSecondary,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = selectedProxy?.let {
-                                    s.language.localizeCountryName(it.countryName, it.countryCode)
-                                } ?: s.recommendedFastest,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontFamily = fonts.headingFont,
-                                    fontWeight = FontWeight.SemiBold,
-                                ),
-                                color = neu.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(neu.surfaceElevated),
-                            contentAlignment = Alignment.Center,
+                        // Inline Sing-Box MASQUE v2.0 Quick Protocol Pill Bar (One-Tap Switch on Home Screen)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = s.islandChangeServer,
-                                tint = serverActiveColor,
-                                modifier = Modifier.size(20.dp),
-                            )
+                            ConnectionProtocolMode.entries.forEach { mode ->
+                                val isSelected = activeProtocolMode == mode
+                                val pillShape = RoundedCornerShape(11.dp)
+                                val shortTitle = when (mode) {
+                                    ConnectionProtocolMode.AUTO -> when (s.language) {
+                                        FoxyLanguage.FA -> "خودکار"
+                                        FoxyLanguage.AR -> "تلقائي"
+                                        FoxyLanguage.EN -> "Auto"
+                                    }
+                                    ConnectionProtocolMode.HTTP3_QUIC -> "H3 QUIC"
+                                    ConnectionProtocolMode.HTTP2_TCP -> "H2 TCP"
+                                    ConnectionProtocolMode.HTTP11_TLS -> "H1.1 TLS"
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(pillShape)
+                                        .background(
+                                            if (isSelected) serverActiveColor.copy(alpha = 0.16f)
+                                            else neu.surfaceElevated.copy(alpha = 0.65f),
+                                        )
+                                        .border(
+                                            width = if (isSelected) 1.3.dp else 0.8.dp,
+                                            color = if (isSelected) serverActiveColor else neu.textSecondary.copy(alpha = 0.14f),
+                                            shape = pillShape,
+                                        )
+                                        .clickable {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            activeProtocolMode = mode
+                                            app.settingsStore.connectionProtocolMode = mode
+                                            FoxyVpnService.switchProtocol(app, mode)
+                                        }
+                                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = shortTitle,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = fonts.monoFont,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                            fontSize = 10.5.sp,
+                                        ),
+                                        color = if (isSelected) serverActiveColor else neu.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1096,7 +1242,7 @@ fun HomeScreen(
                     cachedRealCountry = app.settingsStore.cachedRealCountry,
                     selectedProxy = selectedProxy,
                     vpnEdgeIp = vpnEdgeIp,
-                    protocolLabel = if (state == ConnectionState.CONNECTED) liveProtocolBadge else app.settingsStore.connectionProtocolMode.shortBadge,
+                    protocolLabel = if (state == ConnectionState.CONNECTED) liveProtocolBadge else activeProtocolMode.shortBadge,
                     adBlockEnabled = app.settingsStore.adBlockEnabled,
                     onOpenServers = onOpenServers,
                     modifier = Modifier
@@ -1108,7 +1254,7 @@ fun HomeScreen(
 
                 // 8. CURRENT IP CARD:
                 // - "CURRENT IP • TAP FOR LEAK TEST" on a single horizontal line
-                // - Full IPv6/IPv4 address on a separate line inside a Quote Block / Framed Container
+                // - Full IPv6/IPv4 address + Pahlavi/Country Flag + One-Tap Copy button
                 NeumorphicCard(
                     onClick = { onOpenTools(NetworkToolTab.LEAK_INSPECTOR.id) },
                     modifier = Modifier
@@ -1125,6 +1271,8 @@ fun HomeScreen(
                         ?: if (!isConnected) app.settingsStore.cachedRealCountry
                             ?.takeIf { it.matches(Regex("[A-Za-z]{2}")) }
                             ?.uppercase() else null
+                    val rawIpOnly = activeIpInfo?.ip?.takeIf(String::isNotBlank)
+                        ?: if (!isConnected) app.settingsStore.cachedRealIp else null
                     val rawIpDisplay = activeIpInfo?.ip?.takeIf(String::isNotBlank)?.let { ip ->
                         val countrySuffix = displayCountryCode?.let {
                             " • ${s.language.localizeCountryName("", it)}"
@@ -1133,7 +1281,12 @@ fun HomeScreen(
                     } ?: if (isConnected) {
                         s.verifying
                     } else {
-                        app.settingsStore.cachedRealIp?.let { "\u200E$it" } ?: s.checking
+                        app.settingsStore.cachedRealIp?.let { ip ->
+                            val countrySuffix = displayCountryCode?.let {
+                                " • ${s.language.localizeCountryName("", it)}"
+                            }.orEmpty()
+                            "\u200E$ip$countrySuffix"
+                        } ?: s.checking
                     }
                     val ipDisplay = rawIpDisplay
                     val badgeColor = if (isConnected) statusColors.connected else MaterialTheme.colorScheme.error
@@ -1258,8 +1411,39 @@ fun HomeScreen(
                                 Spacer(Modifier.width(8.dp))
                                 CountryFlagImage(
                                     countryCode = displayCountryCode,
-                                    modifier = Modifier.size(width = 24.dp, height = 16.dp),
+                                    modifier = Modifier.size(width = 26.dp, height = 18.dp),
                                 )
+                            }
+                            if (!rawIpOnly.isNullOrBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(neu.accent.copy(alpha = 0.14f))
+                                        .clickable {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            cm?.setPrimaryClip(ClipData.newPlainText("IP Address", rawIpOnly))
+                                            Toast.makeText(
+                                                app,
+                                                when (s.language) {
+                                                    FoxyLanguage.FA -> "آی‌پی کپی شد: $rawIpOnly"
+                                                    FoxyLanguage.AR -> "تم نسخ عنوان IP: $rawIpOnly"
+                                                    FoxyLanguage.EN -> "IP copied: $rawIpOnly"
+                                                },
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = "Copy IP",
+                                        tint = neu.accent,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -1525,15 +1709,14 @@ fun HomeScreen(
 
                 Spacer(Modifier.height(18.dp))
 
-                // 10. SPEED BOOSTER, BATTERY SAVER & SMART AUTOMATION CARD
+                // 10. QUICK POWER TOGGLES GRID (2x2 COMPACT TACTILE CONTROL DECK)
                 val configRev by app.settingsStore.islandConfigRevision.collectAsState()
                 @Suppress("UNUSED_EXPRESSION")
                 configRev
                 var unmeteredBoost by remember(configRev) { mutableStateOf(app.settingsStore.unmeteredVpnModeEnabled) }
+                var adBlockEnabled by remember(configRev) { mutableStateOf(app.settingsStore.adBlockEnabled) }
+                var autoBestFailover by remember(configRev) { mutableStateOf(app.settingsStore.smartPingAutoSwitch) }
                 var batteryEco by remember(configRev) { mutableStateOf(app.settingsStore.batterySaverModeEnabled) }
-                var scheduleEnabled by remember(configRev) { mutableStateOf(app.settingsStore.scheduleEnabled) }
-                var idleEnabled by remember(configRev) { mutableStateOf(app.settingsStore.idleDisconnectEnabled) }
-                val idleSeconds by FoxyVpnService.idleTimerSeconds.collectAsState()
 
                 NeumorphicCard(
                     modifier = Modifier
@@ -1544,7 +1727,7 @@ fun HomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 18.dp),
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1552,7 +1735,11 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = s.sectionSmartAutomation,
+                                text = when (s.language) {
+                                    FoxyLanguage.FA -> "کنترل سریع عملکرد و بهینه‌ساز"
+                                    FoxyLanguage.AR -> "التحكم السريع بالأداء والتحسين"
+                                    FoxyLanguage.EN -> "QUICK PERFORMANCE & SHIELD DECK"
+                                },
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontFamily = fonts.headingFont,
                                     fontWeight = FontWeight.Bold,
@@ -1577,188 +1764,168 @@ fun HomeScreen(
                             )
                         }
 
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(12.dp))
 
-                        // Row 0a: Unmetered High-Speed Tunnel Mode + 256KB/1MB Turbo Buffer
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = s.unmeteredSpeedBoostTitle,
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontFamily = fonts.headingFont,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                    color = neu.textPrimary,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = s.unmeteredSpeedBoostSub,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = fonts.bodyFont),
-                                    color = if (unmeteredBoost) statusColors.connected else neu.textSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Switch(
-                                checked = unmeteredBoost,
-                                onCheckedChange = {
+                        data class QuickPowerItem(
+                            val title: String,
+                            val badge: String,
+                            val icon: androidx.compose.ui.graphics.vector.ImageVector,
+                            val enabled: Boolean,
+                            val activeColor: Color,
+                            val onToggle: (Boolean) -> Unit,
+                        )
+
+                        val powerItems = listOf(
+                            QuickPowerItem(
+                                title = when (s.language) {
+                                    FoxyLanguage.FA -> "بوستر سرعت توربو"
+                                    FoxyLanguage.AR -> "معزز السرعة توربو"
+                                    FoxyLanguage.EN -> "Turbo Speed Boost"
+                                },
+                                badge = if (unmeteredBoost) "1MB TUN" else "STD",
+                                icon = Icons.Filled.Bolt,
+                                enabled = unmeteredBoost,
+                                activeColor = statusColors.connected,
+                                onToggle = {
                                     unmeteredBoost = it
                                     app.settingsStore.unmeteredVpnModeEnabled = it
                                     FoxyVpnService.applyNetworkConfiguration(app)
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = statusColors.connected,
-                                ),
-                            )
-                        }
-
-                        HorizontalDivider(
-                            color = neu.textSecondary.copy(alpha = 0.12f),
-                            modifier = Modifier.padding(vertical = 10.dp),
-                        )
-
-                        // Row 0b: Smart Battery Saver (Eco Mode)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = s.batterySaverModeTitle,
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontFamily = fonts.headingFont,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                    color = neu.textPrimary,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = s.batterySaverModeSub,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = fonts.bodyFont),
-                                    color = if (batteryEco) neu.accent else neu.textSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Switch(
-                                checked = batteryEco,
-                                onCheckedChange = {
+                            ),
+                            QuickPowerItem(
+                                title = when (s.language) {
+                                    FoxyLanguage.FA -> "سپر ضد تبلیغات"
+                                    FoxyLanguage.AR -> "حاجب الإعلانات"
+                                    FoxyLanguage.EN -> "AdBlock Shield"
+                                },
+                                badge = if (adBlockEnabled) "DNS ON" else "OFF",
+                                icon = Icons.Filled.Security,
+                                enabled = adBlockEnabled,
+                                activeColor = neu.accent,
+                                onToggle = {
+                                    adBlockEnabled = it
+                                    app.settingsStore.adBlockEnabled = it
+                                    FoxyVpnService.applyRuntimeSettings(app)
+                                },
+                            ),
+                            QuickPowerItem(
+                                title = when (s.language) {
+                                    FoxyLanguage.FA -> "سوییچ هوشمند پینگ"
+                                    FoxyLanguage.AR -> "تبديل ذكي لأقل بينغ"
+                                    FoxyLanguage.EN -> "Smart Ping Switch"
+                                },
+                                badge = if (autoBestFailover) "AUTO" else "MANUAL",
+                                icon = Icons.Filled.Speed,
+                                enabled = autoBestFailover,
+                                activeColor = statusColors.connected,
+                                onToggle = {
+                                    autoBestFailover = it
+                                    app.settingsStore.smartPingAutoSwitch = it
+                                    FoxyVpnService.applyRuntimeSettings(app)
+                                },
+                            ),
+                            QuickPowerItem(
+                                title = when (s.language) {
+                                    FoxyLanguage.FA -> "ذخیره هوشمند باتری"
+                                    FoxyLanguage.AR -> "توفير البطارية الذكي"
+                                    FoxyLanguage.EN -> "Smart Battery Eco"
+                                },
+                                badge = if (batteryEco) "ECO ON" else "PERF",
+                                icon = Icons.Filled.Shield,
+                                enabled = batteryEco,
+                                activeColor = neu.accent,
+                                onToggle = {
                                     batteryEco = it
                                     app.settingsStore.batterySaverModeEnabled = it
                                     FoxyVpnService.applyRuntimeSettings(app)
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = neu.accent,
-                                ),
-                            )
-                        }
-
-                        HorizontalDivider(
-                            color = neu.textSecondary.copy(alpha = 0.12f),
-                            modifier = Modifier.padding(vertical = 10.dp),
+                            ),
                         )
 
-                        // Row 1: Scheduled Auto-Connect / Auto-Disconnect
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = s.scheduleVpnTitle,
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontFamily = fonts.headingFont,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                    color = neu.textPrimary,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                val startFmt = s.language.formatClockTimeLocalized(
-                                    app.settingsStore.scheduleStartHour,
-                                    app.settingsStore.scheduleStartMinute,
-                                )
-                                val endFmt = s.language.formatClockTimeLocalized(
-                                    app.settingsStore.scheduleEndHour,
-                                    app.settingsStore.scheduleEndMinute,
-                                )
-                                Text(
-                                    text = "${s.scheduleFromLabel}: $startFmt  •  ${s.scheduleToLabel}: $endFmt",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = fonts.monoFont),
-                                    color = if (scheduleEnabled) neu.accent else neu.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Switch(
-                                checked = scheduleEnabled,
-                                onCheckedChange = {
-                                    scheduleEnabled = it
-                                    app.settingsStore.scheduleEnabled = it
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = neu.accent,
-                                ),
-                            )
-                        }
-
-                        HorizontalDivider(
-                            color = neu.textSecondary.copy(alpha = 0.12f),
-                            modifier = Modifier.padding(vertical = 10.dp),
-                        )
-
-                        // Row 2: Smart Idle Auto-Disconnect (Battery & Data Saver)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = s.idleDisconnectTitle,
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontFamily = fonts.headingFont,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                    color = neu.textPrimary,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                val timeoutFmt = s.language.formatMinutesLocalized(app.settingsStore.idleTimeoutMinutes)
-                                val idleStatus = if (state == ConnectionState.CONNECTED && idleEnabled) {
-                                    val remSec = (app.settingsStore.idleTimeoutMinutes * 60L - idleSeconds).coerceAtLeast(0L)
-                                    "$timeoutFmt (${s.language.formatDurationLocalized(remSec, alwaysShowHours = false)})"
-                                } else {
-                                    "${s.idleTimeoutTitle}: $timeoutFmt"
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            powerItems.chunked(2).forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    rowItems.forEach { item ->
+                                        val tileShape = RoundedCornerShape(16.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(tileShape)
+                                                .background(
+                                                    if (item.enabled) item.activeColor.copy(alpha = 0.13f)
+                                                    else neu.surfaceElevated.copy(alpha = 0.72f),
+                                                )
+                                                .border(
+                                                    width = if (item.enabled) 1.2.dp else 1.dp,
+                                                    color = if (item.enabled) item.activeColor.copy(alpha = 0.45f)
+                                                    else neu.textSecondary.copy(alpha = 0.12f),
+                                                    shape = tileShape,
+                                                )
+                                                .clickable { item.onToggle(!item.enabled) }
+                                                .padding(horizontal = 12.dp, vertical = 11.dp),
+                                        ) {
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(30.dp)
+                                                            .clip(CircleShape)
+                                                            .background(
+                                                                if (item.enabled) item.activeColor.copy(alpha = 0.22f)
+                                                                else neu.textSecondary.copy(alpha = 0.10f),
+                                                            ),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = item.icon,
+                                                            contentDescription = item.title,
+                                                            tint = if (item.enabled) item.activeColor else neu.textSecondary,
+                                                            modifier = Modifier.size(16.dp),
+                                                        )
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(
+                                                                if (item.enabled) item.activeColor.copy(alpha = 0.20f)
+                                                                else neu.textSecondary.copy(alpha = 0.10f),
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = item.badge,
+                                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                                fontFamily = fonts.monoFont,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 9.sp,
+                                                            ),
+                                                            color = if (item.enabled) item.activeColor else neu.textSecondary,
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(
+                                                    text = item.title,
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        fontFamily = fonts.headingFont,
+                                                        fontWeight = FontWeight.Bold,
+                                                    ),
+                                                    color = if (item.enabled) neu.textPrimary else neu.textSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
-                                Text(
-                                    text = idleStatus,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = fonts.monoFont),
-                                    color = if (idleEnabled) statusColors.connected else neu.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
                             }
-                            Switch(
-                                checked = idleEnabled,
-                                onCheckedChange = {
-                                    idleEnabled = it
-                                    app.settingsStore.idleDisconnectEnabled = it
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = statusColors.connected,
-                                ),
-                            )
                         }
                     }
                 }
