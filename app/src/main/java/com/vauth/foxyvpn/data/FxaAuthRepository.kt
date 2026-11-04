@@ -28,7 +28,8 @@ import org.json.JSONObject
 private const val FXA_AUTH_SERVER = "https://api.accounts.firefox.com/v1"
 private const val FXA_OAUTH_SERVER = "https://oauth.accounts.firefox.com/v1"
 private const val FXA_CONTENT_SERVER = "https://accounts.firefox.com"
-private const val FXA_CLIENT_ID = "e6eb0d1e856335fc"
+private const val FXA_CLIENT_ID = "5882386c6d801776"
+private const val FXA_LEGACY_CLIENT_ID = "e6eb0d1e856335fc"
 private const val FXA_SCOPE = "profile https://identity.mozilla.com/apps/vpn"
 private const val FXA_LEGACY_SCOPE = "profile:email profile:uid"
 private const val SESSION_TOKEN_BYTES = 32
@@ -98,10 +99,8 @@ class FxaAuthRepository(
             .appendQueryParameter("context", "fx_desktop_v3")
             .appendQueryParameter("service", "sync")
             .appendQueryParameter("action", "email")
-            .appendQueryParameter(" FlowId", UUID.randomUUID().toString())
             .build()
             .toString()
-            .replace(" FlowId=", "flowId=")
 
     suspend fun startLogin(rawEmail: String, rawPassword: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
@@ -117,7 +116,7 @@ class FxaAuthRepository(
                         .put("email", email)
                         .put("authPW", toHex(authPW))
                         .put("reason", "signin")
-                        .put("service", FXA_CLIENT_ID)
+                        .put("service", "sync")
                         .put("verificationMethod", "email-otp")
 
                 val resp =
@@ -169,7 +168,7 @@ class FxaAuthRepository(
                     JSONObject()
                         .put("email", email)
                         .put("authPW", toHex(authPW))
-                        .put("service", FXA_CLIENT_ID)
+                        .put("service", "sync")
                         .put("verificationMethod", "email-otp")
 
                 val resp =
@@ -214,22 +213,24 @@ class FxaAuthRepository(
                 var verifiedOk = false
                 var lastErr: Throwable? = null
 
-                // Try email OTP verification first, then TOTP verification if applicable
                 val endpoints =
                     if (pendingVerificationMethod == "totp-2fa") {
                         listOf(
-                            "$FXA_AUTH_SERVER/session/verify/totp",
-                            "$FXA_AUTH_SERVER/session/verify_code",
+                            "$FXA_AUTH_SERVER/session/verify/totp" to
+                                JSONObject().put("code", code).put("service", "sync"),
+                            "$FXA_AUTH_SERVER/session/verify_code" to
+                                JSONObject().put("code", code),
                         )
                     } else {
                         listOf(
-                            "$FXA_AUTH_SERVER/session/verify_code",
-                            "$FXA_AUTH_SERVER/session/verify/totp",
+                            "$FXA_AUTH_SERVER/session/verify_code" to
+                                JSONObject().put("code", code),
+                            "$FXA_AUTH_SERVER/session/verify/totp" to
+                                JSONObject().put("code", code).put("service", "sync"),
                         )
                     }
 
-                for (endpoint in endpoints) {
-                    val body = JSONObject().put("code", code).put("service", FXA_CLIENT_ID)
+                for ((endpoint, body) in endpoints) {
                     val attemptResult =
                         runCatching {
                             fxaRequest(
@@ -334,9 +335,10 @@ class FxaAuthRepository(
             val payload =
                 JSONObject()
                     .put("client_id", FXA_CLIENT_ID)
-                    .put("scope", scope)
                     .put("ttl", 3600)
+                    .put("grant_type", "fxa-credentials")
                     .put("access_type", "offline")
+                    .put("scope", scope)
                     .toString()
 
             val urls =
@@ -423,55 +425,58 @@ class FxaAuthRepository(
         refreshToken: String,
         existing: AuthTokens,
     ): AuthTokens? {
-        val scopes = listOf(FXA_SCOPE, FXA_LEGACY_SCOPE, null)
+        val clientIds = listOf(FXA_CLIENT_ID, FXA_LEGACY_CLIENT_ID)
+        val scopes = listOf(FXA_SCOPE, null)
         val urls =
             listOf(
-                "$FXA_OAUTH_SERVER/token",
                 "$FXA_AUTH_SERVER/oauth/token",
+                "$FXA_OAUTH_SERVER/token",
             )
         var sawTerminalAuthError = false
 
-        for (scope in scopes) {
-            val payloadObj =
-                JSONObject()
-                    .put("client_id", FXA_CLIENT_ID)
-                    .put("grant_type", "refresh_token")
-                    .put("refresh_token", refreshToken)
-                    .put("ttl", 3600)
-            if (scope != null) {
-                payloadObj.put("scope", scope)
-            }
-            val bodyString = payloadObj.toString()
+        for (clientId in clientIds) {
+            for (scope in scopes) {
+                val payloadObj =
+                    JSONObject()
+                        .put("client_id", clientId)
+                        .put("ttl", 3600)
+                        .put("grant_type", "refresh_token")
+                        .put("refresh_token", refreshToken)
+                if (scope != null) {
+                    payloadObj.put("scope", scope)
+                }
+                val bodyString = payloadObj.toString()
 
-            for (url in urls) {
-                val res =
-                    runCatching {
-                        fxaRequest(
-                            url = url,
-                            method = "POST",
-                            jsonBody = bodyString,
-                            hawkTokenHex = null,
-                        )
-                    }
-                if (res.isSuccess) {
-                    val json = res.getOrThrow()
-                    val access = json.optString("access_token")
-                    if (access.isNotBlank()) {
-                        val newRefresh =
-                            json.optString("refresh_token").ifBlank { refreshToken }
-                        val expiresIn = json.optLong("expires_in", 3600L).coerceAtLeast(60L)
-                        val now = Instant.now().epochSecond
-                        return existing.copy(
-                            accessToken = access,
-                            refreshToken = newRefresh,
-                            expiresAtEpochSeconds = now + expiresIn,
-                        )
-                    }
-                } else {
-                    val err = res.exceptionOrNull()
-                    if (err is FxaHttpException && (err.code == 400 || err.code == 401)) {
-                        if (err.errno in listOf(108, 109, 110)) {
-                            sawTerminalAuthError = true
+                for (url in urls) {
+                    val res =
+                        runCatching {
+                            fxaRequest(
+                                url = url,
+                                method = "POST",
+                                jsonBody = bodyString,
+                                hawkTokenHex = null,
+                            )
+                        }
+                    if (res.isSuccess) {
+                        val json = res.getOrThrow()
+                        val access = json.optString("access_token")
+                        if (access.isNotBlank()) {
+                            val newRefresh =
+                                json.optString("refresh_token").ifBlank { refreshToken }
+                            val expiresIn = json.optLong("expires_in", 3600L).coerceAtLeast(60L)
+                            val now = Instant.now().epochSecond
+                            return existing.copy(
+                                accessToken = access,
+                                refreshToken = newRefresh,
+                                expiresAtEpochSeconds = now + expiresIn,
+                            )
+                        }
+                    } else {
+                        val err = res.exceptionOrNull()
+                        if (err is FxaHttpException && (err.code == 400 || err.code == 401)) {
+                            if (err.errno in listOf(108, 110)) {
+                                sawTerminalAuthError = true
+                            }
                         }
                     }
                 }
@@ -549,8 +554,11 @@ class FxaAuthRepository(
         jsonBody: String?,
         hawkTokenHex: String?,
     ): JSONObject {
+        ControlPlaneHttp.cookieJar.syncFromWebView()
+        FirefoxAccountHeaders.ensureFresh(httpClient)
+
         var attempt = 0
-        val maxAttempts = 3
+        val maxAttempts = 5
         val origin =
             if (url.startsWith(FXA_OAUTH_SERVER)) {
                 "https://oauth.accounts.firefox.com"
@@ -616,17 +624,23 @@ class FxaAuthRepository(
                     challengeSolver.solveAndInstall(
                         challengedBody = bodyText,
                         challengedOrigin = challengeOrigin,
+                        challengedBaseUrl = challengeOrigin,
                         userAgent = FirefoxAccountHeaders.userAgent,
                     )
                 if (solved) {
-                    delay(350L)
+                    delay(350L * attempt)
                     continue
                 }
+                delay(400L * attempt)
+                continue
+            }
+
+            if (code == 406) {
                 throw FxaHttpException(
                     code = 406,
                     errno = 999,
                     message =
-                        "The account service rejected the anti-bot challenge (HTTP 406). Use 'Sign in via Mozilla Web Portal' below or try again.",
+                        "The account service rejected the anti-bot challenge after retries (HTTP 406). Use 'Sign In via Official Mozilla Web Portal' or try again.",
                 )
             }
 
@@ -676,7 +690,11 @@ class FxaAuthRepository(
             }
         val ts = (System.currentTimeMillis() / 1000L).toString()
         val nonceBytes = ByteArray(6).also { SecureRandom().nextBytes(it) }
-        val nonce = Base64.encodeToString(nonceBytes, Base64.NO_WRAP)
+        val nonce =
+            Base64.encodeToString(
+                nonceBytes,
+                Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+            )
 
         val payloadHashB64 =
             if (payload != null && contentType != null) {
@@ -718,6 +736,7 @@ class FxaAuthRepository(
             if (payloadHashB64.isNotEmpty()) {
                 append(", hash=\"").append(payloadHashB64).append("\"")
             }
+            append(", ext=\"\"")
             append(", mac=\"").append(macB64).append("\"")
         }
     }

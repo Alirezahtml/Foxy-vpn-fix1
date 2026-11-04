@@ -148,6 +148,22 @@ class SimpleCookieJar : CookieJar {
     }
 
     @Synchronized
+    fun snapshotAll(): List<Cookie> {
+        val now = System.currentTimeMillis()
+        val iter = store.iterator()
+        val out = mutableListOf<Cookie>()
+        while (iter.hasNext()) {
+            val cookie = iter.next().value
+            if (cookie.expiresAt <= now) {
+                iter.remove()
+            } else {
+                out.add(cookie)
+            }
+        }
+        return out
+    }
+
+    @Synchronized
     fun hasValidCookie(name: String, host: String = "api.accounts.firefox.com"): Boolean {
         val now = System.currentTimeMillis()
         return store.values.any { cookie ->
@@ -194,10 +210,43 @@ class SimpleCookieJar : CookieJar {
                             .secure()
                             .expiresAt(System.currentTimeMillis() + 3_600_000L)
                             .build()
-                    val key = "${cookie.domain}|${cookie.path}|${cookie.name}"
+                    val key = "${cookie.domain}|${cookie.hostOnly}|${cookie.path}|${cookie.name}"
                     store[key] = cookie
                 }
             }
+        }
+    }
+
+    @Synchronized
+    fun syncToWebView(cookies: List<Cookie>) {
+        if (cookies.isEmpty()) return
+        runCatching {
+            val cm = CookieManager.getInstance()
+            cm.setAcceptCookie(true)
+            for (cookie in cookies) {
+                val cookieStr =
+                    buildString {
+                        append(cookie.name).append('=').append(cookie.value)
+                        append("; Domain=").append(cookie.domain)
+                        append("; Path=").append(cookie.path)
+                        if (cookie.secure) append("; Secure")
+                        if (cookie.httpOnly) append("; HttpOnly")
+                    }
+                val targetUrls =
+                    if (cookie.domain.endsWith("firefox.com")) {
+                        listOf(
+                            "https://accounts.firefox.com",
+                            "https://api.accounts.firefox.com",
+                            "https://oauth.accounts.firefox.com",
+                        )
+                    } else {
+                        listOf("https://${cookie.domain}")
+                    }
+                for (targetUrl in targetUrls) {
+                    cm.setCookie(targetUrl, cookieStr)
+                }
+            }
+            cm.flush()
         }
     }
 

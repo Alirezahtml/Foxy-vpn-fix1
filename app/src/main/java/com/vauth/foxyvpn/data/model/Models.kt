@@ -66,6 +66,9 @@ data class ProxyPass(
     @SerialName("token") val token: String = "",
     @SerialName("expires_at") val expiresAt: String = "",
     @Transient val expiresEpochSeconds: Long = 0L,
+    @Transient val quotaLimitBytes: Long? = null,
+    @Transient val quotaRemainingBytes: Long? = null,
+    @Transient val quotaResetEpochSeconds: Long? = null,
 )
 
 data class AccountDeviceInfo(

@@ -798,8 +798,8 @@ private const val CMD_FXA_STATUS = "fxaccounts:fxa_status"
 private const val CMD_CAN_LINK_ACCOUNT = "fxaccounts:can_link_account"
 private const val CMD_LOGIN = "fxaccounts:login"
 private val SESSION_TOKEN_HEX_REGEX = Regex("^[0-9a-f]{64}$")
-private val FIREFOX_ANDROID_WEB_UA =
-    "Mozilla/5.0 (Android ${android.os.Build.VERSION.RELEASE.ifBlank { "14" }}; Mobile; rv:135.0) Gecko/135.0 Firefox/135.0"
+private val FIREFOX_ANDROID_WEB_UA: String
+    get() = com.vauth.foxyvpn.data.FirefoxAccountHeaders.userAgent
 
 private fun quoteJsString(value: String): String = org.json.JSONObject.quote(value)
 
