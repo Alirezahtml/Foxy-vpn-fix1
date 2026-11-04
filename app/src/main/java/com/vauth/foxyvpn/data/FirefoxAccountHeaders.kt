@@ -12,7 +12,7 @@ import org.json.JSONObject
 internal object FirefoxAccountHeaders {
     private const val FIREFOX_VERSIONS_URL =
         "https://product-details.mozilla.org/1.0/firefox_versions.json"
-    private const val DEFAULT_FIREFOX_MAJOR = "135"
+    private const val DEFAULT_FIREFOX_MAJOR = "159"
     private const val VERSION_TTL_MS = 6 * 60 * 60 * 1_000L
 
     private val refreshMutex = Mutex()
@@ -33,11 +33,11 @@ internal object FirefoxAccountHeaders {
     }
 
     suspend fun ensureFresh(httpClient: OkHttpClient) {
-        val now = android.os.SystemClock.elapsedRealtime()
+        val now = System.nanoTime() / 1_000_000L
         if (cachedAtElapsedMs != 0L && now - cachedAtElapsedMs < VERSION_TTL_MS) return
 
         refreshMutex.withLock {
-            val lockedNow = android.os.SystemClock.elapsedRealtime()
+            val lockedNow = System.nanoTime() / 1_000_000L
             if (cachedAtElapsedMs != 0L && lockedNow - cachedAtElapsedMs < VERSION_TTL_MS) return
 
             val latestMajor =
@@ -54,8 +54,13 @@ internal object FirefoxAccountHeaders {
                             if (!resp.isSuccessful) return@use null
                             val raw = resp.body?.readBoundedUtf8().orEmpty()
                             val version =
-                                JSONObject(raw).optString("LATEST_FIREFOX_VERSION").trim()
-                            version.substringBefore('.').takeIf { it.all(Char::isDigit) }
+                                Regex(""""LATEST_FIREFOX_VERSION"\s*:\s*"([^"]+)"""")
+                                    .find(raw)
+                                    ?.groupValues
+                                    ?.getOrNull(1)
+                                    ?.trim()
+                                    .orEmpty()
+                            version.substringBefore('.').takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
                         }
                     }.getOrNull()
                 }

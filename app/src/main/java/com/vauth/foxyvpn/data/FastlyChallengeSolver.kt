@@ -7,14 +7,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okhttp3.Cookie
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
 
 internal val FASTLY_CHALLENGE_BASES: List<String> =
     listOf(
@@ -32,7 +38,6 @@ private val INIT_REGEX =
 private const val POW_ALPHABET =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 private val JSON_MEDIA = "application/json".toMediaType()
-private val TEXT_MEDIA = "text/plain;charset=UTF-8".toMediaType()
 private const val MAX_CHALLENGE_ROUNDS = 4
 private const val TAG = "FastlyChallenge"
 
@@ -41,6 +46,7 @@ class FastlyChallengeSolver(
     private val cookieJar: SimpleCookieJar = ControlPlaneHttp.cookieJar,
 ) {
     private val mutex = Mutex()
+    private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun ensureClearance(): Boolean = solveAndInstall()
 
@@ -61,6 +67,14 @@ class FastlyChallengeSolver(
                                 challengedOrigin.trimEnd('/').ifBlank { FASTLY_CHALLENGE_BASES.first() }
                             }
 
+                        if (effectiveBase.contains("firefox.com")) {
+                            warmUpTlsSession(
+                                client = httpClient,
+                                url = "https://api.accounts.firefox.com/",
+                                userAgent = browserUserAgent,
+                            )
+                        }
+
                         if (challengedBody != null && isChallengeHtml(challengedBody)) {
                             val directJar = SimpleCookieJar()
                             directJar.importCookies(cookieJar.snapshotAll())
@@ -79,20 +93,15 @@ class FastlyChallengeSolver(
 
                         val candidateBases =
                             buildList {
+                                if (effectiveBase.contains("firefox.com")) {
+                                    add("https://accounts.firefox.com")
+                                }
                                 add(effectiveBase)
-                                add("https://accounts.firefox.com")
                                 addAll(FASTLY_CHALLENGE_BASES)
                             }.map { it.trimEnd('/') }.distinct()
 
                         for (candidateBase in candidateBases) {
-                            val candidateUrl =
-                                if (candidateBase.contains("accounts.firefox.com") &&
-                                    !candidateBase.contains("api.accounts.firefox.com")
-                                ) {
-                                    "$candidateBase/?context=fx_desktop_v3&service=sync&action=email"
-                                } else {
-                                    "$candidateBase/"
-                                }
+                            val candidateUrl = "$candidateBase/"
                             val candidateUA =
                                 if (candidateBase.contains("firefox.com")) {
                                     browserUserAgent
@@ -100,9 +109,6 @@ class FastlyChallengeSolver(
                                     effectiveUA
                                 }
 
-                            // Crucial: Use the SAME solverJar and solver client for both fetching
-                            // the challenge HTML page (which sets the mandatory _fs_ch_st_<id> cookie)
-                            // and fetching /_fs-ch-<id>/script.js?reload=true + /fst-post-back.
                             val solverJar = SimpleCookieJar()
                             val solver = newSolverClient(solverJar)
                             val page =
@@ -170,42 +176,51 @@ class FastlyChallengeSolver(
             }
 
         val initMatch = INIT_REGEX.find(script) ?: return false
-        var challenges = JSONArray(initMatch.groupValues[1])
-        val token = initMatch.groupValues[2]
+        var challenges: JsonArray =
+            runCatching { json.parseToJsonElement(initMatch.groupValues[1]).jsonArray }
+                .getOrNull() ?: return false
+        var token = initMatch.groupValues[2]
 
         for (round in 0 until MAX_CHALLENGE_ROUNDS) {
-            val answers = JSONArray()
-            for (i in 0 until challenges.length()) {
-                val ch = challenges.optJSONObject(i) ?: continue
-                when (ch.optString("ty")) {
-                    "pat" -> {
-                        val patAns = fetchPat(solver, prefixUrl, origin, token, userAgent)
-                        answers.put(JSONObject().put("ty", "pat").put("answer", patAns))
+            val answers = buildJsonArray {
+                for (element in challenges) {
+                    val ch = runCatching { element.jsonObject }.getOrNull() ?: continue
+                    val ty = ch["ty"]?.jsonPrimitive?.content.orEmpty()
+                    when (ty) {
+                        "pat" -> {
+                            val patAuth = fetchPat(solver, prefixUrl, origin, token, userAgent)
+                            add(
+                                buildJsonObject {
+                                    put("ty", JsonPrimitive("pat"))
+                                    put("auth", JsonPrimitive(patAuth))
+                                },
+                            )
+                        }
+                        "pow" -> {
+                            val data = runCatching { ch["data"]?.jsonObject }.getOrNull() ?: return false
+                            val solved = solvePow(data) ?: return false
+                            add(solved)
+                        }
+                        "clientmetrics" -> add(buildClientMetrics())
                     }
-                    "pow" -> {
-                        val data = ch.optJSONObject("data") ?: return false
-                        val solved = solvePow(data) ?: return false
-                        answers.put(solved)
-                    }
-                    "clientmetrics" -> answers.put(buildClientMetrics())
                 }
             }
 
             val postBody =
-                JSONObject()
-                    .put("token", token)
-                    .put("data", answers)
-                    .toString()
+                buildJsonObject {
+                    put("token", JsonPrimitive(token))
+                    put("data", answers)
+                }.toString()
 
             val postReq =
                 FirefoxAccountHeaders.applyChallengeAsset(
                         Request.Builder()
                             .url("$prefixUrl/fst-post-back")
                             .header("Content-Type", "application/json")
-                            .post(postBody.toRequestBody(JSON_MEDIA)),
+                            .post(postBody.toByteArray(Charsets.UTF_8).toRequestBody(JSON_MEDIA)),
                         origin = origin,
                         dest = "empty",
-                        accept = "*/*",
+                        accept = "application/json",
                         userAgentOverride = userAgent,
                     )
                     .build()
@@ -215,23 +230,32 @@ class FastlyChallengeSolver(
                     resp.code to (resp.body?.readBoundedUtf8() ?: "")
                 }
 
-            val respJson = runCatching { JSONObject(respBody) }.getOrNull()
-            val status = respJson?.optString("status").orEmpty()
+            val respJson =
+                runCatching { json.parseToJsonElement(respBody).jsonObject }.getOrNull()
+            val status = respJson?.get("status")?.jsonPrimitive?.content.orEmpty()
             if (code in 200..299 && status == "success") {
-                installSolvedCookies(solverJar, origin)
+                installSolvedCookies(solverJar)
                 return hasClearanceCookies(solverJar)
             }
 
-            val next = respJson?.optJSONArray("challenges")
-            if (next != null && next.length() > 0) {
+            val next =
+                runCatching { respJson?.get("ch")?.jsonArray }.getOrNull()
+                    ?: runCatching { respJson?.get("challenges")?.jsonArray }.getOrNull()
+            val nextTok =
+                runCatching { respJson?.get("tok")?.jsonPrimitive?.content }.getOrNull()?.takeIf { it.isNotBlank() }
+                    ?: runCatching { respJson?.get("token")?.jsonPrimitive?.content }.getOrNull()?.takeIf { it.isNotBlank() }
+            if (next != null && next.isNotEmpty()) {
                 challenges = next
+                if (nextTok != null) {
+                    token = nextTok
+                }
                 continue
             }
             break
         }
 
         if (hasClearanceCookies(solverJar)) {
-            installSolvedCookies(solverJar, origin)
+            installSolvedCookies(solverJar)
             return true
         }
         return false
@@ -239,45 +263,45 @@ class FastlyChallengeSolver(
 
     private fun hasClearanceCookies(solverJar: SimpleCookieJar): Boolean =
         solverJar.snapshotAll().any { cookie ->
-            cookie.name.startsWith("_fs_ch_cp_") || cookie.name.startsWith("_fs_ch_")
+            cookie.name.startsWith("_fs_ch_cp_")
         }
 
-    private fun installSolvedCookies(solverJar: SimpleCookieJar, origin: String) {
-        val rawCookies = solverJar.snapshotAll()
-        if (rawCookies.isEmpty()) return
-
-        val expanded = mutableListOf<Cookie>()
-        expanded.addAll(rawCookies)
-
-        val originHost = origin.toHttpUrlOrNull()?.host
-        for (cookie in rawCookies) {
-            if (cookie.name.startsWith("_fs_ch_")) {
-                val domains =
-                    buildList {
-                        add("firefox.com")
-                        add("accounts.firefox.com")
-                        add("api.accounts.firefox.com")
-                        add("oauth.accounts.firefox.com")
-                        if (!originHost.isNullOrBlank()) add(originHost)
-                    }.distinct()
-                for (domain in domains) {
-                    expanded.add(
-                        Cookie.Builder()
-                            .name(cookie.name)
-                            .value(cookie.value)
-                            .domain(domain)
-                            .path("/")
-                            .secure()
-                            .expiresAt(cookie.expiresAt)
-                            .build(),
-                    )
-                }
+    private fun installSolvedCookies(solverJar: SimpleCookieJar) {
+        val clearanceCookies =
+            solverJar.snapshotAll().filter { cookie ->
+                !cookie.name.startsWith("_fs_ch_st_")
             }
-        }
+        if (clearanceCookies.isEmpty()) return
 
-        cookieJar.importCookies(expanded)
-        cookieJar.syncToWebView(expanded)
-        AppLogger.i(TAG, "Installed Fastly clearance cookies (${rawCookies.size} base / ${expanded.size} total)")
+        cookieJar.importCookies(clearanceCookies)
+        cookieJar.syncToWebView(clearanceCookies)
+        runCatching { httpClient.connectionPool.evictAll() }
+        AppLogger.i(
+            TAG,
+            "Installed Fastly clearance cookies (${clearanceCookies.map { "${it.name}@${it.domain}" }})",
+        )
+    }
+
+    private fun warmUpTlsSession(
+        client: OkHttpClient,
+        url: String,
+        userAgent: String,
+    ) {
+        runCatching {
+            val req =
+                FirefoxAccountHeaders.applyBrowserDocument(
+                        Request.Builder()
+                            .url(url)
+                            .header("Connection", "close")
+                            .get(),
+                        userAgentOverride = userAgent,
+                    )
+                    .build()
+            client.newCall(req).execute().use { resp ->
+                resp.body?.readBoundedUtf8()
+            }
+            client.connectionPool.evictAll()
+        }
     }
 
     private fun newSolverClient(jar: SimpleCookieJar): OkHttpClient =
@@ -320,34 +344,43 @@ class FastlyChallengeSolver(
                 FirefoxAccountHeaders.applyChallengeAsset(
                         Request.Builder()
                             .url("$prefixUrl/pat?token=$encoded")
-                            .header("Cache-Control", "no-store")
-                            .post("".toRequestBody(TEXT_MEDIA)),
+                            .header("Content-Type", "application/json")
+                            .post(ByteArray(0).toRequestBody(null)),
                         origin = origin,
                         dest = "empty",
-                        accept = "*/*",
+                        accept = "text/plain",
                         userAgentOverride = userAgent,
                     )
                     .build()
             client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.readBoundedUtf8().orEmpty() else ""
+                if (!resp.isSuccessful) return@use ""
+                val raw = resp.body?.readBoundedUtf8().orEmpty()
+                runCatching {
+                    json.parseToJsonElement(raw).jsonObject["auth"]?.jsonPrimitive?.content.orEmpty()
+                }.getOrDefault("")
             }
         }.getOrDefault("")
 
-    internal fun solvePow(data: JSONObject): JSONObject? {
-        val base = data.optString("base")
-        val targetHash = data.optString("hash").lowercase()
-        val hmac = data.optString("hmac")
-        val expires = data.optString("expires")
+    internal fun solvePow(data: JsonObject): JsonObject? {
+        val base = data["base"]?.jsonPrimitive?.content.orEmpty()
+        val targetHash = data["hash"]?.jsonPrimitive?.content.orEmpty().lowercase()
+        val hmac = data["hmac"]?.jsonPrimitive?.content.orEmpty()
+        val expires = data["expires"]?.jsonPrimitive?.content.orEmpty()
         if (base.isEmpty() || targetHash.isEmpty()) return null
 
+        val answer = solvePowAnswer(base, targetHash) ?: return null
+        return buildJsonObject {
+            put("ty", JsonPrimitive("pow"))
+            put("base", JsonPrimitive(base))
+            put("answer", JsonPrimitive(answer))
+            put("hmac", JsonPrimitive(hmac))
+            put("expires", JsonPrimitive(expires))
+        }
+    }
+
+    internal fun solvePowAnswer(base: String, targetHash: String): String? {
         val md = MessageDigest.getInstance("SHA-256")
-        val answer = findTwoCharMatch(md, base, targetHash) ?: return null
-        return JSONObject()
-            .put("ty", "pow")
-            .put("base", base)
-            .put("answer", answer)
-            .put("hmac", hmac)
-            .put("expires", expires)
+        return findTwoCharMatch(md, base, targetHash.lowercase())
     }
 
     private fun findTwoCharMatch(
@@ -369,20 +402,27 @@ class FastlyChallengeSolver(
         return null
     }
 
-    private fun buildClientMetrics(): JSONObject =
-        JSONObject()
-            .put("ty", "clientmetrics")
-            .put("webdriver", false)
-            .put(
+    private fun buildClientMetrics(): JsonObject =
+        buildJsonObject {
+            put("ty", JsonPrimitive("clientmetrics"))
+            put("webdriver", JsonPrimitive(false))
+            put(
                 "bot_detection_result",
-                JSONObject().put("bot_detected", false).put("bot_kind", JSONObject.NULL),
+                buildJsonObject {
+                    put("bot_detected", JsonPrimitive(false))
+                    put("bot_kind", JsonNull)
+                },
             )
-            .put(
+            put(
                 "browser_metrics",
-                JSONObject().put("client_data", "{}").put("error_trace", JSONObject.NULL),
+                buildJsonObject {
+                    put("client_data", JsonPrimitive("{}"))
+                    put("error_trace", JsonNull)
+                },
             )
-            .put("detector_results", JSONObject())
-            .put("v", 2)
+            put("detector_results", buildJsonObject {})
+            put("v", JsonPrimitive(2))
+        }
 
     private fun bytesToHex(bytes: ByteArray): String {
         val chars = CharArray(bytes.size * 2)

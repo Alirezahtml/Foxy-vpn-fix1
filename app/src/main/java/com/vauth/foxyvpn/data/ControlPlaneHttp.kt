@@ -34,21 +34,55 @@ object ControlPlaneHttp {
 
     fun underlyingNetwork(): Network? = networkProvider?.invoke()
 
+    @Volatile private var pinnedFirefoxIpv4: ByteArray? = null
+
+    fun resetPinnedDns() {
+        pinnedFirefoxIpv4 = null
+    }
+
+    private fun lookupWithNetwork(hostname: String): List<InetAddress> {
+        val net = underlyingNetwork()
+        if (net != null) {
+            val resolved = runCatching { net.getAllByName(hostname).toList() }.getOrNull()
+            if (!resolved.isNullOrEmpty()) return resolved
+        }
+        return Dns.SYSTEM.lookup(hostname)
+    }
+
+    internal fun resolveHostAddresses(hostname: String): List<InetAddress> {
+        if (hostname == "firefox.com" || hostname.endsWith(".firefox.com")) {
+            val cached = pinnedFirefoxIpv4
+            if (cached != null) {
+                runCatching { InetAddress.getByAddress(hostname, cached) }
+                    .getOrNull()
+                    ?.let { return listOf(it) }
+            }
+            val accountsList =
+                runCatching { lookupWithNetwork("accounts.firefox.com") }.getOrNull().orEmpty()
+            val v4 =
+                accountsList.filterIsInstance<java.net.Inet4Address>().firstOrNull()
+                    ?: runCatching { lookupWithNetwork(hostname) }
+                        .getOrNull()
+                        .orEmpty()
+                        .filterIsInstance<java.net.Inet4Address>()
+                        .firstOrNull()
+            if (v4 != null) {
+                val raw = v4.address
+                pinnedFirefoxIpv4 = raw
+                return listOf(InetAddress.getByAddress(hostname, raw))
+            }
+        }
+        return lookupWithNetwork(hostname)
+    }
+
     val client: OkHttpClient =
         OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
             .socketFactory(ProtectingSocketFactory())
             .dns(
                 object : Dns {
-                    override fun lookup(hostname: String): List<InetAddress> {
-                        val net = underlyingNetwork()
-                        if (net != null) {
-                            val resolved =
-                                runCatching { net.getAllByName(hostname).toList() }.getOrNull()
-                            if (!resolved.isNullOrEmpty()) return resolved
-                        }
-                        return Dns.SYSTEM.lookup(hostname)
-                    }
+                    override fun lookup(hostname: String): List<InetAddress> =
+                        resolveHostAddresses(hostname)
                 },
             )
             .cookieJar(cookieJar)
@@ -135,16 +169,19 @@ class SimpleCookieJar : CookieJar {
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
         val now = System.currentTimeMillis()
         val iter = store.iterator()
-        val matched = mutableListOf<Cookie>()
+        val byName = linkedMapOf<String, Cookie>()
         while (iter.hasNext()) {
             val cookie = iter.next().value
             if (cookie.expiresAt <= now) {
                 iter.remove()
             } else if (cookie.matches(url)) {
-                matched.add(cookie)
+                val prev = byName[cookie.name]
+                if (prev == null || cookie.expiresAt >= prev.expiresAt) {
+                    byName[cookie.name] = cookie
+                }
             }
         }
-        return matched
+        return byName.values.toList()
     }
 
     @Synchronized
@@ -174,6 +211,16 @@ class SimpleCookieJar : CookieJar {
     }
 
     @Synchronized
+    fun hasValidClearanceCookie(host: String = "api.accounts.firefox.com"): Boolean {
+        val now = System.currentTimeMillis()
+        return store.values.any { cookie ->
+            cookie.name.startsWith("_fs_ch_cp_") &&
+                cookie.expiresAt > now + 5_000L &&
+                (cookie.domain == host || host.endsWith(".${cookie.domain}"))
+        }
+    }
+
+    @Synchronized
     fun syncFromWebView() {
         runCatching {
             val cm = CookieManager.getInstance()
@@ -194,7 +241,7 @@ class SimpleCookieJar : CookieJar {
                     if (eqIdx <= 0) continue
                     val name = trimmed.substring(0, eqIdx).trim()
                     val value = trimmed.substring(eqIdx + 1).trim()
-                    if (name.isEmpty()) continue
+                    if (name.isEmpty() || name.startsWith("_fs_ch_st_")) continue
                     val domain =
                         if (httpUrl.host.endsWith("firefox.com")) {
                             "firefox.com"
@@ -224,10 +271,13 @@ class SimpleCookieJar : CookieJar {
             val cm = CookieManager.getInstance()
             cm.setAcceptCookie(true)
             for (cookie in cookies) {
+                if (cookie.name.startsWith("_fs_ch_st_")) continue
                 val cookieStr =
                     buildString {
                         append(cookie.name).append('=').append(cookie.value)
-                        append("; Domain=").append(cookie.domain)
+                        if (!cookie.hostOnly) {
+                            append("; Domain=").append(cookie.domain)
+                        }
                         append("; Path=").append(cookie.path)
                         if (cookie.secure) append("; Secure")
                         if (cookie.httpOnly) append("; HttpOnly")

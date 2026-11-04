@@ -160,6 +160,10 @@ fun LoginScreen(
         restoringBackup = false
     }
 
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        runCatching { authRepository.prewarmFastlyClearance() }
+    }
+
     DisposableEffect(Unit) {
         if (!awaitingTwoFactor) {
             authRepository.clearPendingSession()
@@ -915,6 +919,7 @@ internal class PortalWebChannelBridge(
     private val authRepository: FxaAuthRepository?,
     private val onTokens: (String, String?, Long, String?) -> Unit,
     private val onSessionToken: (String) -> Unit,
+    private val onOAuthCode: (String, String?) -> Unit = { _, _ -> },
 ) {
     private val webViewRef = java.lang.ref.WeakReference(webView)
 
@@ -1005,7 +1010,7 @@ internal class PortalWebChannelBridge(
             CMD_FXA_STATUS -> reply(
                 messageId,
                 CMD_FXA_STATUS,
-                """{"capabilities":{},"signedInUser":null}""",
+                """{"capabilities":{"choose_what_to_sync":true,"engines":[]},"signedInUser":null}""",
             )
             CMD_CAN_LINK_ACCOUNT -> reply(
                 messageId,
@@ -1013,10 +1018,20 @@ internal class PortalWebChannelBridge(
                 """{"ok":true}""",
             )
             CMD_LOGIN, "fxaccounts:oauth_login" -> {
+                val oauthCode = data.optString("code", "").trim()
                 val token = data.optString("sessionToken", "").trim()
                     .ifBlank { data.optString("token", "").trim() }
                 if (SESSION_TOKEN_HEX_REGEX.matches(token)) {
                     pendingSessionToken = token
+                }
+                if (oauthCode.isNotBlank()) {
+                    val view = webViewRef.get()
+                    if (view != null) {
+                        view.post { onOAuthCode(oauthCode, pendingSessionToken) }
+                    } else {
+                        onOAuthCode(oauthCode, pendingSessionToken)
+                    }
+                } else if (SESSION_TOKEN_HEX_REGEX.matches(token)) {
                     val hasVerificationReason = data.has("verificationReason") &&
                         data.optString("verificationReason").isNotBlank()
                     val isVerified = if (data.has("verified")) {
@@ -1337,6 +1352,17 @@ fun MozillaInAppWebPortal(
                                 finalizingSession = true
                                 scope.launch {
                                     val res = authRepository.completeBrowserLogin(sessionToken)
+                                    finalizingSession = false
+                                    if (res.isSuccess) {
+                                        onCloseAndSwitchToLogin()
+                                    }
+                                }
+                            },
+                            onOAuthCode = { code, sessionToken ->
+                                if (finalizingSession || authRepository == null) return@PortalWebChannelBridge
+                                finalizingSession = true
+                                scope.launch {
+                                    val res = authRepository.completeOAuthCodeLogin(code, sessionToken)
                                     finalizingSession = false
                                     if (res.isSuccess) {
                                         onCloseAndSwitchToLogin()

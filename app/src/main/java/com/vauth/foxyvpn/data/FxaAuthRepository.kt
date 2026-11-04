@@ -63,6 +63,21 @@ class FxaAuthRepository(
     @Volatile
     private var pendingVerificationMethod: String? = null
 
+    @Volatile
+    private var pendingPkceCodeVerifier: String? = null
+
+    suspend fun prewarmFastlyClearance(): Boolean =
+        withContext(Dispatchers.IO) {
+            ControlPlaneHttp.cookieJar.syncFromWebView()
+            if (ControlPlaneHttp.cookieJar.hasValidClearanceCookie("api.accounts.firefox.com")) {
+                return@withContext true
+            }
+            challengeSolver.solveAndInstall(
+                challengedOrigin = FXA_CONTENT_SERVER,
+                challengedBaseUrl = FXA_CONTENT_SERVER,
+            )
+        }
+
     fun isSignedIn(): Boolean = tokenStore.loadAuth() != null
 
     fun currentEmail(): String? = tokenStore.loadEmail()
@@ -101,6 +116,38 @@ class FxaAuthRepository(
             .appendQueryParameter("action", "email")
             .build()
             .toString()
+
+    fun getOfficialOAuthPkceUrl(): String {
+        val verifierBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val verifier =
+            Base64.encodeToString(
+                verifierBytes,
+                Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+            )
+        pendingPkceCodeVerifier = verifier
+        val challengeDigest =
+            MessageDigest.getInstance("SHA-256")
+                .digest(verifier.toByteArray(StandardCharsets.US_ASCII))
+        val challenge =
+            Base64.encodeToString(
+                challengeDigest,
+                Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+            )
+        val state = UUID.randomUUID().toString().replace("-", "")
+        return Uri.parse("$FXA_CONTENT_SERVER/authorization")
+            .buildUpon()
+            .appendQueryParameter("client_id", FXA_CLIENT_ID)
+            .appendQueryParameter("scope", FXA_SCOPE)
+            .appendQueryParameter("response_type", "code")
+            .appendQueryParameter("access_type", "offline")
+            .appendQueryParameter("code_challenge", challenge)
+            .appendQueryParameter("code_challenge_method", "S256")
+            .appendQueryParameter("action", "email")
+            .appendQueryParameter("context", "oauth_webchannel_v1")
+            .appendQueryParameter("state", state)
+            .build()
+            .toString()
+    }
 
     suspend fun startLogin(rawEmail: String, rawPassword: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
@@ -313,6 +360,83 @@ class FxaAuthRepository(
                 runCatching { guardianClient.activateGuardian(accessToken) }
                 runCatching { onAuthUpdated(email, auth) }
                 AppLogger.i(TAG, "Browser login completed via in-page OAuth exchange")
+            }
+        }
+
+    suspend fun completeOAuthCodeLogin(
+        code: String,
+        sessionTokenHex: String? = null,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val cleanCode = code.trim()
+                require(cleanCode.isNotBlank()) { "Empty OAuth authorization code" }
+                ControlPlaneHttp.cookieJar.syncFromWebView()
+                val verifier = pendingPkceCodeVerifier
+                val payloadObj =
+                    JSONObject()
+                        .put("client_id", FXA_CLIENT_ID)
+                        .put("grant_type", "authorization_code")
+                        .put("code", cleanCode)
+                        .put("ttl", 3600)
+                if (!verifier.isNullOrBlank()) {
+                    payloadObj.put("code_verifier", verifier)
+                }
+                val bodyString = payloadObj.toString()
+                val urls =
+                    listOf(
+                        "$FXA_OAUTH_SERVER/token",
+                        "$FXA_AUTH_SERVER/oauth/token",
+                    )
+                var lastErr: Throwable? = null
+                var obtained: AuthTokens? = null
+                for (url in urls) {
+                    val res =
+                        runCatching {
+                            fxaRequest(
+                                url = url,
+                                method = "POST",
+                                jsonBody = bodyString,
+                                hawkTokenHex = null,
+                            )
+                        }
+                    if (res.isSuccess) {
+                        val json = res.getOrThrow()
+                        val access = json.optString("access_token")
+                        if (access.isNotBlank()) {
+                            val refresh = json.optString("refresh_token").ifBlank { null }
+                            val expiresIn = json.optLong("expires_in", 3600L).coerceAtLeast(60L)
+                            val now = Instant.now().epochSecond
+                            obtained =
+                                AuthTokens(
+                                    sessionToken =
+                                        sessionTokenHex
+                                            ?.trim()
+                                            ?.lowercase()
+                                            ?.takeIf { it.length == SESSION_TOKEN_BYTES * 2 },
+                                    accessToken = access,
+                                    refreshToken = refresh,
+                                    expiresAtEpochSeconds = now + expiresIn,
+                                )
+                            break
+                        }
+                    } else {
+                        lastErr = res.exceptionOrNull()
+                    }
+                }
+                val tokens =
+                    obtained
+                        ?: throw (lastErr
+                            ?: IOException("Failed to exchange OAuth authorization code"))
+                val email =
+                    runCatching { fetchProfileEmail(tokens.accessToken) }.getOrNull()
+                        ?: pendingEmail
+                        ?: tokenStore.loadEmail()
+                        ?: "Mozilla Account"
+                tokenStore.saveAuth(email, tokens)
+                runCatching { guardianClient.activateGuardian(tokens.accessToken) }
+                runCatching { onAuthUpdated(email, tokens) }
+                AppLogger.i(TAG, "OAuth PKCE authorization code login completed")
             }
         }
 
@@ -557,6 +681,16 @@ class FxaAuthRepository(
         ControlPlaneHttp.cookieJar.syncFromWebView()
         FirefoxAccountHeaders.ensureFresh(httpClient)
 
+        // Proactively obtain Fastly _fs_ch_cp_ clearance cookie before hitting FxA API
+        if (!ControlPlaneHttp.cookieJar.hasValidClearanceCookie("api.accounts.firefox.com")) {
+            runCatching {
+                challengeSolver.solveAndInstall(
+                    challengedOrigin = FXA_CONTENT_SERVER,
+                    challengedBaseUrl = FXA_CONTENT_SERVER,
+                )
+            }
+        }
+
         var attempt = 0
         val maxAttempts = 5
         val origin =
@@ -592,7 +726,10 @@ class FxaAuthRepository(
             }
 
             if (method.equals("POST", ignoreCase = true)) {
-                val payload = (jsonBody ?: "{}").toRequestBody("application/json".toMediaType())
+                val payload =
+                    (jsonBody ?: "{}")
+                        .toByteArray(StandardCharsets.UTF_8)
+                        .toRequestBody("application/json".toMediaType())
                 builder.post(payload)
                 builder.header("Content-Type", "application/json")
             } else {
@@ -619,19 +756,20 @@ class FxaAuthRepository(
                             val parsed = Uri.parse(url)
                             "${parsed.scheme}://${parsed.host}"
                         }
-                        .getOrDefault("https://api.accounts.firefox.com")
+                        .getOrDefault("https://accounts.firefox.com")
+                runCatching { httpClient.connectionPool.evictAll() }
                 val solved =
                     challengeSolver.solveAndInstall(
                         challengedBody = bodyText,
                         challengedOrigin = challengeOrigin,
-                        challengedBaseUrl = challengeOrigin,
-                        userAgent = FirefoxAccountHeaders.userAgent,
+                        challengedBaseUrl = "https://accounts.firefox.com",
                     )
                 if (solved) {
-                    delay(350L * attempt)
+                    delay(250L * attempt)
                     continue
                 }
-                delay(400L * attempt)
+                ControlPlaneHttp.resetPinnedDns()
+                delay(350L * attempt)
                 continue
             }
 
@@ -736,7 +874,6 @@ class FxaAuthRepository(
             if (payloadHashB64.isNotEmpty()) {
                 append(", hash=\"").append(payloadHashB64).append("\"")
             }
-            append(", ext=\"\"")
             append(", mac=\"").append(macB64).append("\"")
         }
     }

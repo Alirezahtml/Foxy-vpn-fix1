@@ -41,21 +41,25 @@ object AppLogger {
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
     fun d(tag: String, message: String) {
-        Log.d(tag, message)
+        runCatching { Log.d(tag, message) }
     }
 
     fun i(tag: String, message: String) {
-        Log.i(tag, message)
+        runCatching { Log.i(tag, message) }
         log(LogLevel.INFO, tag, message)
     }
 
     fun w(tag: String, message: String, error: Throwable? = null) {
-        if (error != null) Log.w(tag, message, error) else Log.w(tag, message)
+        runCatching {
+            if (error != null) Log.w(tag, message, error) else Log.w(tag, message)
+        }
         log(LogLevel.WARN, tag, if (error != null) "$message: ${error.message}" else message)
     }
 
     fun e(tag: String, message: String, error: Throwable? = null) {
-        if (error != null) Log.e(tag, message, error) else Log.e(tag, message)
+        runCatching {
+            if (error != null) Log.e(tag, message, error) else Log.e(tag, message)
+        }
         log(LogLevel.ERROR, tag, if (error != null) "$message: ${error.message}" else message)
     }
 
