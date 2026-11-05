@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.vauth.foxyvpn.data.model.ProxyPass
 import com.vauth.foxyvpn.data.model.RuntimeAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -361,6 +362,37 @@ class TokenStore(context: Context) {
         imported.size
     }.getOrDefault(0)
 
+    fun saveProxyPass(pass: ProxyPass) {
+        runCatching {
+            prefs.edit()
+                .putString(KEY_PROXY_PASS_TOKEN, pass.token)
+                .putString(KEY_PROXY_PASS_EXPIRES_AT, pass.expiresAt)
+                .putLong(KEY_PROXY_PASS_EXPIRES_EPOCH, pass.expiresEpochSeconds)
+                .apply()
+        }
+    }
+
+    fun loadProxyPass(): ProxyPass? {
+        val token = prefs.getString(KEY_PROXY_PASS_TOKEN, null)?.takeIf { it.isNotBlank() } ?: return null
+        val expiresEpoch = prefs.getLong(KEY_PROXY_PASS_EXPIRES_EPOCH, 0L)
+        val expiresAt = prefs.getString(KEY_PROXY_PASS_EXPIRES_AT, null) ?: ""
+        return ProxyPass(
+            token = token,
+            expiresAt = expiresAt,
+            expiresEpochSeconds = expiresEpoch,
+        )
+    }
+
+    fun clearProxyPass() {
+        runCatching {
+            prefs.edit()
+                .remove(KEY_PROXY_PASS_TOKEN)
+                .remove(KEY_PROXY_PASS_EXPIRES_AT)
+                .remove(KEY_PROXY_PASS_EXPIRES_EPOCH)
+                .apply()
+        }
+    }
+
     companion object {
         private const val TAG = "TokenStore"
         private val _accountsRevision = MutableStateFlow(0)
@@ -374,6 +406,9 @@ class TokenStore(context: Context) {
         private const val KEY_ACTIVE_EMAIL = "active_account_email"
         private const val KEY_PENDING_EMAIL = "pending_account_email"
         private const val KEY_ACCOUNTS_JSON = "saved_accounts_json"
+        private const val KEY_PROXY_PASS_TOKEN = "cached_proxy_pass_token"
+        private const val KEY_PROXY_PASS_EXPIRES_AT = "cached_proxy_pass_expires_at"
+        private const val KEY_PROXY_PASS_EXPIRES_EPOCH = "cached_proxy_pass_expires_epoch"
 
         private const val CLOCK_SKEW_TOLERANCE_SECONDS = 60L
     }

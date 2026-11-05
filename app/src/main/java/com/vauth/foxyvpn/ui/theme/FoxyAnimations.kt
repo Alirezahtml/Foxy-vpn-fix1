@@ -1395,6 +1395,161 @@ fun NeumorphicRadarPulse(
                         )
                     }
                 }
+                HeroWaveAnimationStyle.NEURAL_SYNAPSE_GRID -> {
+                    // Futuristic Neural Synapse Matrix with glowing connection arcs and spark pulses
+                    val nodeCount = 10
+                    val baseR1 = maxRadius * 0.45f * breathScale
+                    val baseR2 = maxRadius * 0.78f
+                    val nodePositions = mutableListOf<Offset>()
+                    for (n in 0 until nodeCount) {
+                        val angle = n * (2f * PI.toFloat() / nodeCount) + wavePhase * 0.45f
+                        val r = if (n % 2 == 0) baseR1 else (baseR2 * (0.92f + 0.12f * sin(wavePhase * 2f + n)))
+                        val nx = center.x + r * cos(angle)
+                        val ny = center.y + r * sin(angle)
+                        nodePositions.add(Offset(nx, ny))
+                    }
+                    // Synaptic connections with glowing curved lines
+                    for (i in 0 until nodePositions.size) {
+                        val next = nodePositions[(i + 1) % nodePositions.size]
+                        val cross = nodePositions[(i + 3) % nodePositions.size]
+                        val midX = (nodePositions[i].x + next.x) * 0.5f + sin(wavePhase + i) * 12.dp.toPx()
+                        val midY = (nodePositions[i].y + next.y) * 0.5f + cos(wavePhase + i) * 12.dp.toPx()
+                        val arc = Path().apply {
+                            moveTo(nodePositions[i].x, nodePositions[i].y)
+                            quadraticTo(midX, midY, next.x, next.y)
+                        }
+                        val synAlpha = if (isActive || isConnecting) 0.52f else 0.24f
+                        drawPath(
+                            path = arc,
+                            color = effectiveColor.copy(alpha = synAlpha * (0.6f + 0.4f * sin(wavePhase * 3f + i))),
+                            style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                        // Diagonal neural cross-links
+                        if (i % 2 == 0) {
+                            drawLine(
+                                color = effectiveColor.copy(alpha = synAlpha * 0.35f),
+                                start = nodePositions[i],
+                                end = cross,
+                                strokeWidth = 1.2.dp.toPx(),
+                            )
+                        }
+                    }
+                    // Pulsing synapse nodes and firing sparks
+                    for ((idx, node) in nodePositions.withIndex()) {
+                        val nodePulseR = (4.5f + 2.5f * sin(wavePhase * 4f + idx)).dp.toPx() * safeAmp
+                        drawCircle(
+                            color = effectiveColor.copy(alpha = if (isActive || isConnecting) 0.85f else 0.45f),
+                            radius = nodePulseR,
+                            center = node,
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = if (isActive || isConnecting) 0.70f else 0.30f),
+                            radius = nodePulseR * 0.45f,
+                            center = node,
+                        )
+                    }
+                }
+                HeroWaveAnimationStyle.HOLOGRAPHIC_SHIELD_RING -> {
+                    // Segmented Holographic Energy Rings with Tech Ticks & Rotating Radar Sweep
+                    val outerR = maxRadius * 0.82f
+                    val midR = maxRadius * 0.60f * breathScale
+                    val rot1 = wavePhase * 1.2f
+                    val rot2 = -wavePhase * 0.85f
+
+                    // 1. Outer Tech Ring with 28 precision ticks
+                    val tickCount = 28
+                    for (t in 0 until tickCount) {
+                        val angle = rot1 + t * (2f * PI.toFloat() / tickCount)
+                        val isMajor = t % 4 == 0
+                        val tLen = if (isMajor) 10.dp.toPx() else 5.dp.toPx()
+                        val start = Offset(center.x + (outerR - tLen) * cos(angle), center.y + (outerR - tLen) * sin(angle))
+                        val end = Offset(center.x + outerR * cos(angle), center.y + outerR * sin(angle))
+                        drawLine(
+                            color = effectiveColor.copy(alpha = if (isMajor) 0.75f else 0.35f),
+                            start = start,
+                            end = end,
+                            strokeWidth = if (isMajor) 2.4.dp.toPx() else 1.2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+
+                    // 2. Middle Shield Quadrants (4 rotating arcs)
+                    val quadrantSpan = 70f
+                    for (q in 0 until 4) {
+                        val startDeg = (rot2 * 180f / PI.toFloat()) + q * 90f + 10f
+                        drawArc(
+                            color = effectiveColor.copy(alpha = if (isActive || isConnecting) 0.65f else 0.28f),
+                            startAngle = startDeg,
+                            sweepAngle = quadrantSpan,
+                            useCenter = false,
+                            topLeft = Offset(center.x - midR, center.y - midR),
+                            size = Size(midR * 2f, midR * 2f),
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                    }
+
+                    // 3. Holographic Scanner Sweep Wedge
+                    val scanAngle = (wavePhase * 1.5f * 180f / PI.toFloat()) % 360f
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                effectiveColor.copy(alpha = if (isActive || isConnecting) 0.28f else 0.12f),
+                            ),
+                            center = center,
+                        ),
+                        startAngle = scanAngle - 55f,
+                        sweepAngle = 55f,
+                        useCenter = true,
+                        topLeft = Offset(center.x - outerR, center.y - outerR),
+                        size = Size(outerR * 2f, outerR * 2f),
+                    )
+                }
+                HeroWaveAnimationStyle.CELESTIAL_SOLAR_CORONA -> {
+                    // Majestic Cosmic Solar Corona with undulating fiery rays & core flare
+                    val rayCount = 20
+                    val coreR = maxRadius * 0.42f * breathScale
+                    val coronaR = maxRadius * 0.85f * safeAmp
+                    for (r in 0 until rayCount) {
+                        val baseAngle = r * (2f * PI.toFloat() / rayCount) + wavePhase * 0.6f
+                        val rayLenFactor = 0.55f + 0.45f * sin(wavePhase * 3f + r * 1.6f)
+                        val rayEndR = coreR + (coronaR - coreR) * rayLenFactor
+                        val perpAngle = baseAngle + (PI.toFloat() / 2f)
+                        val rayWidth = 6.dp.toPx() * (1f - rayLenFactor * 0.5f)
+
+                        val rayPath = Path().apply {
+                            val p1x = center.x + coreR * cos(baseAngle) - rayWidth * cos(perpAngle)
+                            val p1y = center.y + coreR * sin(baseAngle) - rayWidth * sin(perpAngle)
+                            val p2x = center.x + coreR * cos(baseAngle) + rayWidth * cos(perpAngle)
+                            val p2y = center.y + coreR * sin(baseAngle) + rayWidth * sin(perpAngle)
+                            val tipX = center.x + rayEndR * cos(baseAngle)
+                            val tipY = center.y + rayEndR * sin(baseAngle)
+                            moveTo(p1x, p1y)
+                            lineTo(p2x, p2y)
+                            lineTo(tipX, tipY)
+                            close()
+                        }
+                        val rayAlpha = (0.20f + 0.55f * rayLenFactor) * (if (isActive || isConnecting) 1f else 0.45f)
+                        drawPath(
+                            path = rayPath,
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = rayAlpha * 0.8f),
+                                    effectiveColor.copy(alpha = rayAlpha),
+                                    Color.Transparent,
+                                ),
+                                center = center,
+                                radius = rayEndR,
+                            ),
+                        )
+                    }
+                    // Outer corona halo ring
+                    drawCircle(
+                        color = effectiveColor.copy(alpha = if (isActive || isConnecting) 0.42f else 0.18f),
+                        radius = coronaR * 0.92f,
+                        style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 16f), wavePhase * 20f)),
+                    )
+                }
             }
 
             // Inner subtle precision ring + rotating orbital satellites

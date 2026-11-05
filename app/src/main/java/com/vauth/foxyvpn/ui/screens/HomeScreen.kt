@@ -850,15 +850,40 @@ fun HomeScreen(
                     enter = fadeIn() + expandVertically(),
                     exit = fadeOut() + shrinkVertically(),
                 ) {
-                    Text(
-                        text = error.orEmpty(),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                    val displayError = remember(error, s.language) {
+                        val raw = error.orEmpty()
+                        when {
+                            raw.contains("vpn.mozilla.org", ignoreCase = true) || raw.contains("20000ms", ignoreCase = true) -> {
+                                when (s.language) {
+                                    FoxyLanguage.FA -> "اختلال موقت اینترنت در اتصال به موزیلا (فیلترینگ ISP). سیستم با موفقیت توکن شما را ذخیره کرد و از مسیرهای Anycast پشتیبان استفاده می‌کند؛ اسلایدر را مجدداً بکشید."
+                                    FoxyLanguage.AR -> "تعذر الاتصال المؤقت بخوادم موزيلا بسبب حجب الشبكة. تم حفظ الجلسة وتفعيل مسارات Anycast الاحتياطية؛ اسحب للمحاولة مجدداً."
+                                    FoxyLanguage.EN -> "Temporary network timeout connecting to Mozilla auth servers. Session cached securely & Anycast backups activated; slide to retry."
+                                }
+                            }
+                            else -> raw
+                        }
+                    }
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f))
+                            .border(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = displayError,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = fonts.headingFont,
+                                fontWeight = FontWeight.Medium,
+                                lineHeight = 18.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(18.dp))

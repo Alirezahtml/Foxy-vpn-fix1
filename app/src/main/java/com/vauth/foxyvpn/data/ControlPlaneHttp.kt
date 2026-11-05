@@ -49,7 +49,38 @@ object ControlPlaneHttp {
         return Dns.SYSTEM.lookup(hostname)
     }
 
+    private val FASTLY_ANYCAST_FALLBACK_IPS = listOf(
+        "151.101.65.91",
+        "151.101.129.91",
+        "151.101.193.91",
+        "151.101.1.91",
+        "199.232.41.91",
+        "146.75.121.91",
+        "151.101.2.91",
+        "151.101.66.91",
+        "151.101.130.91",
+        "151.101.194.91",
+    )
+
     internal fun resolveHostAddresses(hostname: String): List<InetAddress> {
+        if (hostname == "vpn.mozilla.org") {
+            val systemResolved = runCatching { lookupWithNetwork(hostname) }.getOrNull().orEmpty()
+            val seen = mutableSetOf<String>()
+            val result = mutableListOf<InetAddress>()
+            for (addr in systemResolved) {
+                val ip = addr.hostAddress ?: continue
+                if (seen.add(ip)) result.add(addr)
+            }
+            for (fallback in FASTLY_ANYCAST_FALLBACK_IPS) {
+                if (seen.add(fallback)) {
+                    runCatching { InetAddress.getByName(fallback) }.getOrNull()?.let {
+                        result.add(InetAddress.getByAddress(hostname, it.address))
+                    }
+                }
+            }
+            if (result.isNotEmpty()) return result
+        }
+
         if (hostname == "firefox.com" || hostname.endsWith(".firefox.com")) {
             val cached = pinnedFirefoxIpv4
             if (cached != null) {
@@ -86,10 +117,10 @@ object ControlPlaneHttp {
                 },
             )
             .cookieJar(cookieJar)
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
-            .callTimeout(35, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(25, TimeUnit.SECONDS)
             .build()
 }
 

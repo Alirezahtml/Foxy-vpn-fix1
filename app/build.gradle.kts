@@ -123,8 +123,8 @@ android {
     }
 }
 
-val libboxVersion = "v1.15.0-foxy-masque.2"
-val libboxExpectedSha256 = "f1b59f4fab207b4c19f8ea3d145bc4dd0e834a530081d0dc045f4b795d6eac0b"
+val libboxVersion = "v1.0.0-masque"
+val libboxExpectedSha256 = "a6a28c7f3cb53f4251d1578f4772f79831395503fdbf91920c6c1e33cc80281c"
 val libboxDownloadUrl = "https://github.com/Vauth/sing-box/releases/download/$libboxVersion/libbox.aar"
 val libboxFile = file("libs/libbox.aar")
 

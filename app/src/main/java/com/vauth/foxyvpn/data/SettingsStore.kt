@@ -267,6 +267,9 @@ enum class HeroWaveAnimationStyle(
     NEON_PRISM_MATRIX("3D Prism Cyber Matrix", "ماتریکس منشوری سه‌بعدی", "مصفوفة المنشور ثلاثي الأبعاد"),
     CYBER_PULSE_TURBINE("Turbo Reactor Turbine", "توربین رآکتور سایبری", "توربين المفاعل السيبراني"),
     AURORA_RIBBON_SILK("Silk Aurora Ribbon Waves", "امواج ابریشمی شفق قطبی", "أمواج الشفق الحريرية"),
+    NEURAL_SYNAPSE_GRID("Neural Synapse Grid", "شبکه سیناپس عصبی", "شبكة المشابك العصبية"),
+    HOLOGRAPHIC_SHIELD_RING("Holographic Tech Shield", "سپر هولوگرافیک محافظ", "درع هولوغرافي تقني"),
+    CELESTIAL_SOLAR_CORONA("Celestial Solar Corona", "تاج خورشیدی کیهانی", "الإكليل الشمسي الكوني"),
     ;
 
     fun localizedLabel(lang: AppLanguage): String = when (lang) {

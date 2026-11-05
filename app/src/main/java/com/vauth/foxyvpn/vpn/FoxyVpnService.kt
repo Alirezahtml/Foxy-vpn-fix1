@@ -330,13 +330,27 @@ class FoxyVpnService : VpnService() {
         connect()
     }
 
-    private suspend fun mintProxyPass(app: FoxyVpnApp): ProxyPass {
+    private suspend fun mintProxyPass(app: FoxyVpnApp, forceRefresh: Boolean = false): ProxyPass {
+        val now = System.currentTimeMillis() / 1000L
+        if (!forceRefresh) {
+            val cached = app.tokenStore.loadProxyPass()
+            if (cached != null && cached.token.isNotBlank() && cached.expiresEpochSeconds > (now + 120L)) {
+                AppLogger.i(TAG, "Reusing valid cached ProxyPass (expires in ${cached.expiresEpochSeconds - now}s)")
+                return cached
+            }
+        }
+
         var accessToken =
             app.authRepository
                 .ensureFreshAccessToken(forceRefresh = false)
                 .getOrElse { err ->
                     if (err is FxaAuthRepository.AuthInvalidException) {
                         throw err
+                    }
+                    val fallback = app.tokenStore.loadProxyPass()
+                    if (fallback != null && fallback.token.isNotBlank() && fallback.expiresEpochSeconds > now) {
+                        AppLogger.w(TAG, "Access token refresh failed, falling back to cached ProxyPass")
+                        return fallback
                     }
                     throw IOException(err.message ?: "Failed to obtain Mozilla access token", err)
                 }
@@ -358,9 +372,17 @@ class FoxyVpnService : VpnService() {
                 }
             }
         }
-        return passResult.getOrElse { err ->
+
+        val pass = passResult.getOrElse { err ->
+            val fallback = app.tokenStore.loadProxyPass()
+            if (fallback != null && fallback.token.isNotBlank() && fallback.expiresEpochSeconds > now) {
+                AppLogger.w(TAG, "Guardian token fetch failed (${err.message}); utilizing cached ProxyPass fallback")
+                return fallback
+            }
             throw IOException(err.message ?: "Failed to fetch Guardian proxy pass", err)
         }
+        app.tokenStore.saveProxyPass(pass)
+        return pass
     }
 
     private suspend fun connect() =
@@ -623,7 +645,7 @@ class FoxyVpnService : VpnService() {
                     var backoffMs = 3_000L
                     for (attempt in 1..4) {
                         if (!isActive) break
-                        val res = runCatching { mintProxyPass(app) }
+                        val res = runCatching { mintProxyPass(app, forceRefresh = true) }
                         if (res.isSuccess) {
                             renewed = res.getOrThrow()
                             break
@@ -640,6 +662,7 @@ class FoxyVpnService : VpnService() {
                         currentPass = renewed
                         credentialDeadline?.update(renewed.expiresEpochSeconds)
                         boxRuntime?.updateBearerToken(renewed.token, app.settingsStore)
+                        app.tokenStore.saveProxyPass(renewed)
                         AppLogger.i(TAG, "Rotated proxy bearer token live in Sing-Box core")
                     }
                 }
@@ -655,17 +678,19 @@ class FoxyVpnService : VpnService() {
                     delay(CREDENTIAL_WATCHDOG_PERIOD_MS)
                     val deadline = credentialDeadline ?: continue
                     if (deadline.isExpired()) {
-                        AppLogger.w(TAG, "Proxy credential deadline expired; attempting emergency rotation...")
-                        val rotated = runCatching { mintProxyPass(app) }.getOrNull()
+                        AppLogger.w(TAG, "Proxy credential deadline reached; attempting background rotation...")
+                        val rotated = runCatching { mintProxyPass(app, forceRefresh = true) }.getOrNull()
                         if (rotated != null) {
                             currentPass = rotated
                             deadline.update(rotated.expiresEpochSeconds)
                             boxRuntime?.updateBearerToken(rotated.token, app.settingsStore)
+                            app.tokenStore.saveProxyPass(rotated)
+                            AppLogger.i(TAG, "Refreshed credential in background successfully")
                         } else {
-                            _lastError.value =
-                                "Proxy session credential expired and could not be renewed."
-                            disconnectAndStop()
-                            break
+                            // Do NOT disconnect! The live tunnel is still open and running on the proxy server.
+                            // Defer the next check by 90s to give the network time to resolve without dropping the user.
+                            AppLogger.w(TAG, "Background token rotation temporarily unreachable; keeping active tunnel alive")
+                            deadline.update(System.currentTimeMillis() / 1000L + 90L)
                         }
                     }
                 }
