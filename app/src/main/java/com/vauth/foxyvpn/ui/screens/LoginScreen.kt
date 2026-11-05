@@ -196,7 +196,40 @@ fun LoginScreen(
             isLoading = false
             result.onSuccess { needsVerification ->
                 if (needsVerification) awaitingTwoFactor = true else onSignedIn()
-            }.onFailure { errorMessage = it.message ?: "Authentication failed" }
+            }.onFailure { err ->
+                val rawMsg = err.message.orEmpty()
+                if (rawMsg.contains("406") || rawMsg.contains("anti-bot", ignoreCase = true)) {
+                    // Automatically open official account portal as requested
+                    errorMessage = when (s.language) {
+                        FoxyLanguage.FA -> "سرویس حساب ورود مستقیم را مسدود کرد؛ درگاه رسمی حساب به صورت خودکار باز شد."
+                        FoxyLanguage.AR -> "تم حظر الدخول المباشر مؤقتاً؛ تم فتح البوابة الرسمية تلقائياً."
+                        FoxyLanguage.EN -> "Direct login blocked by account service; opening official portal automatically."
+                    }
+                    showInAppMozillaWeb = true
+                } else {
+                    errorMessage = when {
+                        rawMsg.contains("102") || rawMsg.contains("Unknown account", ignoreCase = true) ->
+                            when (s.language) {
+                                FoxyLanguage.FA -> "حسابی با این ایمیل یافت نشد. لطفاً ساخت حساب را انتخاب کنید."
+                                FoxyLanguage.AR -> "لم يتم العثور على حساب بهذا البريد. يُرجى إنشاء حساب جديد."
+                                FoxyLanguage.EN -> "Account not found with this email. Please create an account."
+                            }
+                        rawMsg.contains("103") || rawMsg.contains("Incorrect password", ignoreCase = true) ->
+                            when (s.language) {
+                                FoxyLanguage.FA -> "رمز عبور وارد شده نادرست است."
+                                FoxyLanguage.AR -> "كلمة المرور غير صحيحة."
+                                FoxyLanguage.EN -> "Incorrect password entered."
+                            }
+                        rawMsg.contains("Unable to resolve host", ignoreCase = true) || rawMsg.contains("connect", ignoreCase = true) ->
+                            when (s.language) {
+                                FoxyLanguage.FA -> "اتصال اینترنت برقرار نیست یا سرور در دسترس نیست."
+                                FoxyLanguage.AR -> "لا يوجد اتصال بالإنترنت أو الخادم غير متاح."
+                                FoxyLanguage.EN -> "Internet connection unavailable or server unreachable."
+                            }
+                        else -> rawMsg.ifBlank { "ورود ناموفق بود؛ لطفاً دوباره تلاش کنید." }
+                    }
+                }
+            }
         }
     }
 
@@ -209,8 +242,17 @@ fun LoginScreen(
             val result = authRepository.submitTwoFactorCode(cleanCode)
             isLoading = false
             result.onSuccess { onSignedIn() }
-                .onFailure {
-                    errorMessage = it.message ?: "Verification failed"
+                .onFailure { err ->
+                    val raw = err.message.orEmpty()
+                    errorMessage = when {
+                        raw.contains("105") || raw.contains("Invalid verification code", ignoreCase = true) || raw.contains("code", ignoreCase = true) ->
+                            when (s.language) {
+                                FoxyLanguage.FA -> "کد تأیید وارد شده نادرست یا منقضی شده است."
+                                FoxyLanguage.AR -> "رمز التحقق غير صحيح أو انتهت صلاحيته."
+                                FoxyLanguage.EN -> "Verification code is incorrect or expired."
+                            }
+                        else -> raw.ifBlank { "تأیید دو مرحله‌ای ناموفق بود؛ لطفاً دوباره تلاش کنید." }
+                    }
                     if (authRepository.pendingSessionToken == null) {
                         awaitingTwoFactor = false
                     }
@@ -852,7 +894,8 @@ private val WEBCHANNEL_HOOK_JS = """
     var u = getUrlString(url).toLowerCase();
     return u.indexOf('confirmed') !== -1 || u.indexOf('connect_another_device') !== -1 ||
            u.indexOf('/pair') !== -1 || u.indexOf('/settings') !== -1 || u.indexOf('/complete') !== -1 ||
-           u.indexOf('/verified') !== -1 || u.indexOf('success') !== -1;
+           u.indexOf('/verified') !== -1 || u.indexOf('success') !== -1 || u.indexOf('/profile') !== -1 ||
+           u.indexOf('/account') !== -1 || u.indexOf('context=fx_desktop_v3') !== -1 && (u.indexOf('flow=') !== -1 || u.indexOf('uid=') !== -1);
   };
   if (window.fetch) {
     var origFetch = window.fetch;
@@ -1395,6 +1438,23 @@ fun MozillaInAppWebPortal(
                                     com.vauth.foxyvpn.data.ControlPlaneHttp.cookieJar.syncFromWebView()
                                 }
                                 runCatching { view?.evaluateJavascript(WEBCHANNEL_HOOK_JS, null) }
+
+                                val lowerUrl = url?.lowercase().orEmpty()
+                                val isProfileOrSettings = lowerUrl.contains("/profile") ||
+                                    lowerUrl.contains("/settings") ||
+                                    lowerUrl.contains("/account") ||
+                                    lowerUrl.contains("connect_another_device") ||
+                                    lowerUrl.contains("confirmed")
+
+                                if (isProfileOrSettings && !finalizingSession) {
+                                    // If user reached profile page, auth succeeded on Mozilla official site!
+                                    // Check if we have signed-in state or can finalize automatically.
+                                    if (authRepository?.isSignedIn() == true) {
+                                        onCloseAndSwitchToLogin()
+                                        return
+                                    }
+                                }
+
                                 // Capture email entered inside Mozilla signup/signin form so it auto-fills in Foxy VPN
                                 view?.evaluateJavascript(
                                     """

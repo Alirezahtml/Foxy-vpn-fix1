@@ -656,7 +656,79 @@ fun HomeScreen(
                     isSystemOverlay = false,
                 )
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
+
+                // Account Status & Quota Mini-Badge (نمایش وضعیت حساب، سهمیه و کاربر متصل)
+                val accountEmail = remember(app.tokenStore) { app.tokenStore.loadEmail() }
+                if (!accountEmail.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(neu.surfaceElevated.copy(alpha = 0.75f))
+                            .border(1.dp, neu.accent.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(statusColors.connected),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = accountEmail,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontFamily = fonts.headingFont,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
+                                    color = neu.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            val quotaBadgeText = when {
+                                isUnlimited -> when (s.language) {
+                                    FoxyLanguage.FA -> "نامحدود"
+                                    FoxyLanguage.AR -> "غير محدود"
+                                    FoxyLanguage.EN -> "Unlimited"
+                                }
+                                quotaRemaining != null -> s.language.formatBytesLocalized(quotaRemaining ?: 0L)
+                                else -> when (s.language) {
+                                    FoxyLanguage.FA -> "حساب فعال"
+                                    FoxyLanguage.AR -> "حساب نشط"
+                                    FoxyLanguage.EN -> "Active Account"
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(neu.accent.copy(alpha = 0.14f))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            ) {
+                                Text(
+                                    text = quotaBadgeText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = fonts.monoFont,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                    color = neu.accent,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
 
                 // 4. CONNECTION STATUS & TIMER HERO:
                 // Enlarged 320.dp Screen-Filling Harmonic Wave Aura + Full-Width Single-Line Status Badge
