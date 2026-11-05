@@ -30,6 +30,8 @@ internal class CoreABoxRuntime(
             "Selected server address is invalid"
         }
         ensureSetup()
+        val token = bearerToken.trim()
+        Libbox.setBearerToken(token)
 
         val effective =
             if (requested.isSupported) {
@@ -40,13 +42,12 @@ internal class CoreABoxRuntime(
         val config =
             SingBoxConfigBuilder.build(
                 candidate = candidate,
-                bearerToken = bearerToken,
+                bearerToken = token,
                 settings = settings,
                 appPackageName = service.packageName,
                 protocolOverride = effective,
             )
         Libbox.checkConfig(config)
-        Libbox.setBearerToken(bearerToken)
 
         val includeOnly =
             settings.splitTunnelMode == SettingsStore.SplitTunnelMode.INCLUDE &&
@@ -79,8 +80,9 @@ internal class CoreABoxRuntime(
         newBearerToken: String,
         settings: SettingsStore,
     ) {
-        if (newBearerToken.isBlank()) return
-        Libbox.setBearerToken(newBearerToken)
+        val token = newBearerToken.trim()
+        if (token.isBlank()) return
+        Libbox.setBearerToken(token)
         // HTTP/1.1 mode embeds the Bearer token in static outbound headers, so reload config seamlessly
         val candidate = currentCandidate
         val server = commandServer
@@ -89,7 +91,7 @@ internal class CoreABoxRuntime(
                 val updatedConfig =
                     SingBoxConfigBuilder.build(
                         candidate = candidate,
-                        bearerToken = newBearerToken,
+                        bearerToken = token,
                         settings = settings,
                         appPackageName = service.packageName,
                         protocolOverride = selectedProtocol,
