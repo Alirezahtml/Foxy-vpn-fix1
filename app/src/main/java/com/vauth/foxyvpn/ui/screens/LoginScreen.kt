@@ -542,79 +542,41 @@ fun LoginScreen(
                                 }
                             }
 
-                            Spacer(Modifier.height(16.dp))
-                            HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.14f))
-                            Spacer(Modifier.height(14.dp))
-
-                            OutlinedTextField(
-                                value = email,
-                                onValueChange = {
-                                    email = it.replace(Regex("[\\p{Z}\\u200B-\\u200D\\uFEFF\\u00A0\\s]+"), "").lowercase()
-                                },
-                                label = { Text(s.loginEmailLabel) },
-                                leadingIcon = { Icon(Icons.Filled.Mail, contentDescription = null, tint = neu.textSecondary) },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Email,
-                                    imeAction = ImeAction.Next,
-                                    autoCorrectEnabled = false,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-
-                            Spacer(Modifier.height(16.dp))
-
-                            OutlinedTextField(
-                                value = password,
-                                onValueChange = {
-                                    password = it.replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
-                                },
-                                label = { Text(s.loginPasswordLabel) },
-                                leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = neu.textSecondary) },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Password,
-                                    imeAction = ImeAction.Done,
-                                ),
-                                keyboardActions = KeyboardActions(
-                                    onDone = {
-                                        focusManager.clearFocus()
-                                        doSubmitAuth()
-                                    }
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-
-                            Spacer(Modifier.height(22.dp))
-
+                            Spacer(Modifier.height(18.dp))
                             NeumorphicButton(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    doSubmitAuth()
-                                },
+                                onClick = { showInAppMozillaWeb = true },
                                 accentColor = neu.accent,
-                                enabled = !isLoading && email.isNotBlank() && password.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Language,
+                                        contentDescription = null,
+                                        tint = Color.White,
                                         modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.White,
                                     )
-                                } else {
+                                    Spacer(Modifier.width(10.dp))
                                     Text(
                                         text = if (isSignUpMode) {
                                             when (s.language) {
-                                                FoxyLanguage.FA -> "ساخت حساب و دریافت کد تایید"
-                                                FoxyLanguage.AR -> "إنشاء الحساب وإرسال الرمز"
-                                                FoxyLanguage.EN -> "Create Account & Send Code"
+                                                FoxyLanguage.FA -> "باز کردن سایت رسمی برای ساخت حساب"
+                                                FoxyLanguage.AR -> "فتح الموقع الرسمي لإنشاء الحساب"
+                                                FoxyLanguage.EN -> "Open Official Site to Sign Up"
                                             }
                                         } else {
-                                            s.loginContinueButton
+                                            when (s.language) {
+                                                FoxyLanguage.FA -> "ورود از طریق درگاه رسمی حساب"
+                                                FoxyLanguage.AR -> "تسجيل الدخول عبر البوابة الرسمية"
+                                                FoxyLanguage.EN -> "Sign In via Official Account Portal"
+                                            }
                                         },
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontFamily = fonts.headingFont,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
                                         color = Color.White,
                                     )
                                 }

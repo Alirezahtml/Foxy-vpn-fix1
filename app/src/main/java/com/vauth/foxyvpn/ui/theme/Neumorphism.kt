@@ -848,12 +848,12 @@ fun NeumorphicSlideToConnect(
                     }
                 }
                 state == ConnectionState.DISCONNECTED -> {
-                    val labelAlpha = (1f - dragProgress * 1.4f).coerceIn(0f, 1f)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .padding(start = 60.dp, end = 12.dp)
-                            .graphicsLayer { alpha = labelAlpha },
+                            .fillMaxWidth()
+                            .padding(horizontal = 42.dp),
                     ) {
                         Text(
                             text = if (hasError) s.slideToRetry else s.slideToConnect,
@@ -861,7 +861,7 @@ fun NeumorphicSlideToConnect(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.2.sp,
                             ),
-                            color = if (hasError) errorColor else neu.textPrimary.copy(alpha = pulseAlpha),
+                            color = if (hasError) errorColor else neu.textPrimary.copy(alpha = pulseAlpha.coerceIn(0.75f, 1.0f)),
                             maxLines = 1,
                             softWrap = false,
                         )
@@ -869,7 +869,7 @@ fun NeumorphicSlideToConnect(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = null,
-                            tint = (if (hasError) errorColor else neu.accent).copy(alpha = pulseAlpha),
+                            tint = (if (hasError) errorColor else neu.accent).copy(alpha = pulseAlpha.coerceIn(0.75f, 1.0f)),
                             modifier = Modifier.size(18.dp),
                         )
                     }
@@ -877,8 +877,10 @@ fun NeumorphicSlideToConnect(
                 state == ConnectionState.CONNECTING -> {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .padding(end = 60.dp, start = 12.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 42.dp)
                             .clickable {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onDisconnect()
@@ -900,17 +902,17 @@ fun NeumorphicSlideToConnect(
                     }
                 }
                 state == ConnectionState.CONNECTED -> {
-                    val labelAlpha = (dragProgress * 1.4f - 0.4f).coerceIn(0f, 1f)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .padding(end = 60.dp, start = 12.dp)
-                            .graphicsLayer { alpha = labelAlpha },
+                            .fillMaxWidth()
+                            .padding(horizontal = 42.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = null,
-                            tint = statusColors.connected.copy(alpha = pulseAlpha),
+                            tint = statusColors.connected.copy(alpha = pulseAlpha.coerceIn(0.75f, 1.0f)),
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))

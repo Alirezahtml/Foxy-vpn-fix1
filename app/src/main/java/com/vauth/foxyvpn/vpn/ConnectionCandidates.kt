@@ -45,7 +45,21 @@ internal fun selectConnectionCandidates(
         }
     }
 
+    // Priority ranking for Recommended ("REC") or default server:
+    // Prioritize high-bandwidth, low-latency European & Middle Eastern nodes (Frankfurt, Amsterdam, Paris, Vienna, etc.)
+    // over remote destinations (e.g. Argentina or Australia) which suffer from 400ms+ latency in Iran.
+    val priorityCountries = listOf(
+        "DE", "NL", "FR", "AT", "CH", "SE", "GB", "AE", "IT", "ES", "FI", "PL", "NO", "DK", "BE", "US", "CA"
+    )
+    val priorityRank = priorityCountries.withIndex().associate { it.value to it.index }
+
     return valid
+        .sortedWith(
+            compareBy(
+                { priorityRank[it.countryCode.trim().uppercase()] ?: 999 },
+                { it.weight.takeIf { w -> w > 0 } ?: 100 },
+            ),
+        )
         .distinctBy { "${it.host.lowercase()}:${it.port}" }
         .take(maxRecommendedCandidates.coerceAtLeast(1))
 }
