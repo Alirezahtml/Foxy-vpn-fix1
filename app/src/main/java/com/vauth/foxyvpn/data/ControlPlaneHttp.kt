@@ -53,13 +53,13 @@ object ControlPlaneHttp {
         "151.101.65.91",
         "151.101.129.91",
         "151.101.193.91",
-        "151.101.1.91",
         "199.232.41.91",
         "146.75.121.91",
         "151.101.2.91",
         "151.101.66.91",
         "151.101.130.91",
         "151.101.194.91",
+        "151.101.1.91", // Filtered in Iran on many mobile operators; demoted to end
     )
 
     internal fun resolveHostAddresses(hostname: String): List<InetAddress> {
@@ -67,15 +67,23 @@ object ControlPlaneHttp {
             val systemResolved = runCatching { lookupWithNetwork(hostname) }.getOrNull().orEmpty()
             val seen = mutableSetOf<String>()
             val result = mutableListOf<InetAddress>()
-            for (addr in systemResolved) {
-                val ip = addr.hostAddress ?: continue
-                if (seen.add(ip)) result.add(addr)
-            }
+            // 1. Put unblocked Fastly Anycast nodes FIRST
             for (fallback in FASTLY_ANYCAST_FALLBACK_IPS) {
-                if (seen.add(fallback)) {
+                if (fallback != "151.101.1.91" && seen.add(fallback)) {
                     runCatching { InetAddress.getByName(fallback) }.getOrNull()?.let {
                         result.add(InetAddress.getByAddress(hostname, it.address))
                     }
+                }
+            }
+            // 2. Add system-resolved IPs next (skipping 151.101.1.91 for now)
+            for (addr in systemResolved) {
+                val ip = addr.hostAddress ?: continue
+                if (ip != "151.101.1.91" && seen.add(ip)) result.add(addr)
+            }
+            // 3. Add 151.101.1.91 at the absolute end as last-resort fallback
+            if (seen.add("151.101.1.91")) {
+                runCatching { InetAddress.getByName("151.101.1.91") }.getOrNull()?.let {
+                    result.add(InetAddress.getByAddress(hostname, it.address))
                 }
             }
             if (result.isNotEmpty()) return result
@@ -117,10 +125,10 @@ object ControlPlaneHttp {
                 },
             )
             .cookieJar(cookieJar)
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(25, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(18, TimeUnit.SECONDS)
             .build()
 }
 

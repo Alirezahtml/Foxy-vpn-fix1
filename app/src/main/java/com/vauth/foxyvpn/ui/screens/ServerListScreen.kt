@@ -140,22 +140,33 @@ fun ServerListScreen(
     }
 
     val ordered = remember(countries, sortByPing, pingResults.size) {
+        val priorityCountries = listOf(
+            "DE", "NL", "FR", "AT", "CH", "SE", "GB", "AE", "IT", "ES", "FI", "PL", "NO", "DK", "BE", "US", "CA",
+        )
+        val priorityRank = priorityCountries.withIndex().associate { it.value to it.index }
         if (!sortByPing) {
-            countries.sortedWith(compareBy({ it.code != RECOMMENDED_COUNTRY_CODE }, { it.name }))
+            countries.sortedWith(
+                compareBy<VpnCountry> { it.code != RECOMMENDED_COUNTRY_CODE }
+                    .thenBy { priorityRank[it.code.trim().uppercase()] ?: 999 }
+                    .thenBy { it.name },
+            )
         } else {
-            countries.sortedWith(compareBy<VpnCountry> { it.code != RECOMMENDED_COUNTRY_CODE }
-                .thenBy { country ->
-                    country.cities.flatMap { it.servers }
-                        .asSequence()
-                        .filter { !it.quarantined }
-                        .mapNotNull { server ->
-                            val target = ServerListClient.defaultConnectTarget(server) ?: return@mapNotNull null
-                            val cityCode = country.cities.firstOrNull { city -> city.servers.any { it === server } }?.code ?: return@mapNotNull null
-                            pingResults["${country.code}:$cityCode:${target.first}:${target.second}"]?.latencyMs
-                        }
-                        .minOrNull() ?: Int.MAX_VALUE
-                }
-                .thenBy { it.name })
+            countries.sortedWith(
+                compareBy<VpnCountry> { it.code != RECOMMENDED_COUNTRY_CODE }
+                    .thenBy { country ->
+                        country.cities.flatMap { it.servers }
+                            .asSequence()
+                            .filter { !it.quarantined }
+                            .mapNotNull { server ->
+                                val target = ServerListClient.defaultConnectTarget(server) ?: return@mapNotNull null
+                                val cityCode = country.cities.firstOrNull { city -> city.servers.any { it === server } }?.code ?: return@mapNotNull null
+                                pingResults["${country.code}:$cityCode:${target.first}:${target.second}"]?.latencyMs
+                            }
+                            .minOrNull() ?: Int.MAX_VALUE
+                    }
+                    .thenBy { priorityRank[it.code.trim().uppercase()] ?: 999 }
+                    .thenBy { it.name },
+            )
         }
     }
 

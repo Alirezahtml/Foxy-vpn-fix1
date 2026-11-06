@@ -379,6 +379,19 @@ class FoxyVpnService : VpnService() {
                 AppLogger.w(TAG, "Guardian token fetch failed (${err.message}); utilizing cached ProxyPass fallback")
                 return fallback
             }
+            if (accessToken.isNotBlank()) {
+                AppLogger.w(TAG, "Guardian endpoint unreachable (${err.message}); utilizing direct Mozilla bearer token for MASQUE core")
+                val syntheticPass = ProxyPass(
+                    token = accessToken,
+                    expiresAt = java.time.Instant.ofEpochSecond(now + 86400L).toString(),
+                    expiresEpochSeconds = now + 86400L,
+                    quotaLimitBytes = null,
+                    quotaRemainingBytes = null,
+                    quotaResetEpochSeconds = null,
+                )
+                app.tokenStore.saveProxyPass(syntheticPass)
+                return syntheticPass
+            }
             throw IOException(err.message ?: "Failed to fetch Guardian proxy pass", err)
         }
         app.tokenStore.saveProxyPass(pass)

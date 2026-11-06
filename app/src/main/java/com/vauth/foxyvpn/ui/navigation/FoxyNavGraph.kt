@@ -102,6 +102,7 @@ fun FoxyNavGraph(
                 onOpenServers = { navController.navigate(FoxyRoutes.SERVERS) },
                 onOpenSettings = { navController.navigate(FoxyRoutes.SETTINGS) },
                 onOpenTools = { tab -> navController.navigate(FoxyRoutes.tools(tab)) },
+                onOpenLogin = { navController.navigate(FoxyRoutes.LOGIN) },
             )
         }
         composable(FoxyRoutes.SERVERS) {

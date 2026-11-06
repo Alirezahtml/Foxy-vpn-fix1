@@ -23,11 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +41,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.text.style.TextOverflow
+import com.vauth.foxyvpn.data.model.ConnectionState
+import com.vauth.foxyvpn.ui.theme.FoxyLanguage
+import com.vauth.foxyvpn.ui.theme.NeumorphicCard
+import com.vauth.foxyvpn.ui.theme.formatBytesLocalized
+import com.vauth.foxyvpn.vpn.FoxyVpnService
+import com.vauth.foxyvpn.vpn.PingUtil
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,6 +115,15 @@ fun LogsScreen(onBack: () -> Unit) {
     val neu = currentNeumorphicColors
     val statusColors = LocalFoxyStatusColors.current
     val s = currentFoxyStrings
+
+    val vpnState by FoxyVpnService.state.collectAsState()
+    val activeProtocol by FoxyVpnService.activeProtocol.collectAsState()
+    val connectedEndpoint by FoxyVpnService.connectedEndpoint.collectAsState()
+    val connectedCountry by FoxyVpnService.connectedCountry.collectAsState()
+    val pingLatency by FoxyVpnService.pingLatencyMs.collectAsState()
+    val traffic by FoxyVpnService.traffic.collectAsState()
+    val exitIp by FoxyVpnService.exitIp.collectAsState()
+    var isRunningDiagnostic by remember { mutableStateOf(false) }
 
     val countsByFilter: Map<LogFilter, Int> = remember(entries) {
         LogFilter.entries.associateWith { option -> entries.count { it.level in option.levels } }
@@ -199,12 +218,205 @@ fun LogsScreen(onBack: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = 18.dp),
         ) {
+            // Live Diagnostic Summary Card ("کارت وضعیت تشخیصی زنده و دقیق")
+            NeumorphicCard(
+                cornerRadius = 16.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (vpnState) {
+                                            ConnectionState.CONNECTED -> statusColors.connected
+                                            ConnectionState.CONNECTING -> statusColors.connecting
+                                            ConnectionState.DISCONNECTED -> neu.textSecondary.copy(alpha = 0.5f)
+                                        },
+                                    ),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = when (vpnState) {
+                                    ConnectionState.CONNECTED -> s.statusConnected
+                                    ConnectionState.CONNECTING -> s.statusConnecting
+                                    ConnectionState.DISCONNECTED -> s.statusDisconnected
+                                },
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = neu.textPrimary,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (!activeProtocol.isNullOrBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(neu.accent.copy(alpha = 0.15f))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = activeProtocol ?: "AUTO",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = neu.accent,
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            // Run Diagnostic Button
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(neu.accent)
+                                    .clickable(enabled = !isRunningDiagnostic) {
+                                        scope.launch(Dispatchers.IO) {
+                                            isRunningDiagnostic = true
+                                            AppLogger.i("Diagnostics", "=== شروع تست جامع سلامت شبکه و اتصال فاکسی ===")
+                                            val dnsStart = System.currentTimeMillis()
+                                            val resolved = runCatching {
+                                                com.vauth.foxyvpn.data.ControlPlaneHttp.resolveHostAddresses("vpn.mozilla.org")
+                                            }.getOrNull().orEmpty()
+                                            val dnsElapsed = System.currentTimeMillis() - dnsStart
+                                            AppLogger.i(
+                                                "Diagnostics",
+                                                "1. بررسی دی‌ان‌اس (DNS): ${resolved.size} آی‌پی معتبر دریافت شد (${dnsElapsed}ms): ${resolved.take(3).joinToString { it.hostAddress ?: "" }}",
+                                            )
+
+                                            val endpoint = connectedEndpoint
+                                            val targetHost = endpoint?.first ?: "de-fra-wg-001.relays.mullvad.net"
+                                            val targetPort = endpoint?.second ?: 443
+                                            val pingRes = PingUtil.measureTcpLatencyMs(targetHost, targetPort)
+                                            if (pingRes != null) {
+                                                AppLogger.i("Diagnostics", "2. تأخیر شبکه تا رله (${targetHost}:${targetPort}): $pingRes ms [پایدار]")
+                                            } else {
+                                                AppLogger.w("Diagnostics", "2. پینگ رله با تأخیر مواجه شد یا فیلتر است ($targetHost)")
+                                            }
+
+                                            val fastlyPing = PingUtil.measureTcpLatencyMs("151.101.65.91", 443)
+                                            if (fastlyPing != null) {
+                                                AppLogger.i("Diagnostics", "3. ارتباط درگاه انیکست فستلی (151.101.65.91): فعال و در دسترس ($fastlyPing ms)")
+                                            } else {
+                                                AppLogger.w("Diagnostics", "3. ارتباط فستلی در این اپراتور تحت تأثیر اختلال شبکه قرار دارد")
+                                            }
+
+                                            val curState = FoxyVpnService.state.value
+                                            AppLogger.i(
+                                                "Diagnostics",
+                                                "4. وضعیت تونل: $curState • پروتکل: ${activeProtocol ?: "AUTO"} • خروجی: ${connectedCountry ?: "اروپا"}",
+                                            )
+                                            AppLogger.i("Diagnostics", "=== گزارش عیب‌یابی با موفقیت ثبت شد ===")
+                                            isRunningDiagnostic = false
+                                        }
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.NetworkCheck,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isRunningDiagnostic) "در حال تست..." else when (s.language) {
+                                            FoxyLanguage.FA -> "تست شبکه"
+                                            FoxyLanguage.AR -> "فحص الشبكة"
+                                            FoxyLanguage.EN -> "Test Network"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = when (s.language) {
+                                    FoxyLanguage.FA -> "سرور و موقعیت رله:"
+                                    FoxyLanguage.AR -> "الخادم والموقع:"
+                                    FoxyLanguage.EN -> "Server & Relay:"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = neu.textSecondary,
+                            )
+                            Text(
+                                text = connectedEndpoint?.first ?: (connectedCountry ?: "Auto Best Edge"),
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = neu.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = when (s.language) {
+                                    FoxyLanguage.FA -> "پینگ واقعی:"
+                                    FoxyLanguage.AR -> "البينغ الحقيقي:"
+                                    FoxyLanguage.EN -> "Live Latency:"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = neu.textSecondary,
+                            )
+                            Text(
+                                text = if (pingLatency != null) "${pingLatency} ms" else "-",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (pingLatency != null && pingLatency!! < 160) statusColors.connected else neu.accent,
+                            )
+                        }
+                    }
+
+                    if (exitIp != null || traffic.totalDownlinkBytes > 0L) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            if (exitIp != null) {
+                                Text(
+                                    text = "IP: $exitIp",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = neu.textSecondary,
+                                )
+                            }
+                            Text(
+                                text = "↓ ${s.language.formatBytesLocalized(traffic.totalDownlinkBytes)}  ↑ ${s.language.formatBytesLocalized(traffic.totalUplinkBytes)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = neu.textSecondary,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
             // Neumorphic filter pills
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 for (option in LogFilter.entries) {

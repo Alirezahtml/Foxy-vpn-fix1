@@ -248,6 +248,7 @@ class TokenStore(context: Context) {
             .putLong(KEY_EXPIRES_AT, target.expiresAtEpochSeconds)
             .putString(KEY_ACTIVE_EMAIL, target.email)
             .apply()
+        clearProxyPass()
         _accountsRevision.value++
         true
     }.getOrDefault(false)

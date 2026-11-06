@@ -64,6 +64,11 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -72,6 +77,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -186,6 +193,7 @@ fun HomeScreen(
     onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTools: (Int) -> Unit = {},
+    onOpenLogin: () -> Unit = {},
 ) {
     val state by FoxyVpnService.state.collectAsState()
     val lastError by FoxyVpnService.lastError.collectAsState()
@@ -203,6 +211,9 @@ fun HomeScreen(
     val systemInDarkTheme = isSystemInDarkTheme()
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var showAccountSwitcherDialog by remember { mutableStateOf(false) }
+    val accountsRevision by app.tokenStore.accountsRevision.collectAsState()
     var showHomePaletteEditor by remember { mutableStateOf(false) }
     if (showHomePaletteEditor) {
         val appLanguage = when (s.language) {
@@ -658,16 +669,20 @@ fun HomeScreen(
 
                 Spacer(Modifier.height(8.dp))
 
-                // Account Status & Quota Mini-Badge (نمایش وضعیت حساب، سهمیه و کاربر متصل)
-                val accountEmail = remember(app.tokenStore) { app.tokenStore.loadEmail() }
+                // Account Status & Quota Mini-Badge with Interactive Account Switcher ("تعویض و مدیریت اکانت‌ها")
+                val accountEmail = remember(accountsRevision) { app.tokenStore.loadEmail() }
                 if (!accountEmail.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(neu.surfaceElevated.copy(alpha = 0.75f))
-                            .border(1.dp, neu.accent.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .border(1.dp, neu.accent.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                            .clickable {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showAccountSwitcherDialog = true
+                            }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -680,7 +695,7 @@ fun HomeScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(9.dp)
                                         .clip(CircleShape)
                                         .background(statusColors.connected),
                                 )
@@ -694,6 +709,14 @@ fun HomeScreen(
                                     color = neu.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.SwapHoriz,
+                                    contentDescription = "Switch Account",
+                                    tint = neu.accent,
+                                    modifier = Modifier.size(17.dp),
                                 )
                             }
                             Spacer(Modifier.width(8.dp))
@@ -728,6 +751,164 @@ fun HomeScreen(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
+                }
+
+                if (showAccountSwitcherDialog) {
+                    val savedAccounts = remember(accountsRevision) { app.tokenStore.loadAccounts() }
+                    val currentActive = remember(accountsRevision) { app.tokenStore.activeAccountEmail }
+                    AlertDialog(
+                        onDismissRequest = { showAccountSwitcherDialog = false },
+                        containerColor = neu.surfaceElevated,
+                        shape = RoundedCornerShape(22.dp),
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.AccountCircle,
+                                    contentDescription = null,
+                                    tint = neu.accent,
+                                    modifier = Modifier.size(26.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = when (s.language) {
+                                        FoxyLanguage.FA -> "مدیریت و تعویض حساب"
+                                        FoxyLanguage.AR -> "إدارة وتبديل الحساب"
+                                        FoxyLanguage.EN -> "Account Switcher"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontFamily = fonts.headingFont,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                    color = neu.textPrimary,
+                                )
+                            }
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = when (s.language) {
+                                        FoxyLanguage.FA -> "برای تغییر سهمیه و مشخصات تونل، روی حساب مورد نظر کلیک کنید:"
+                                        FoxyLanguage.AR -> "اختر الحساب المطلوب لاستخدام الحصة والجلسة:"
+                                        FoxyLanguage.EN -> "Tap an account below to switch your active session and quota:"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = neu.textSecondary,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                if (savedAccounts.isEmpty()) {
+                                    Text(
+                                        text = when (s.language) {
+                                            FoxyLanguage.FA -> "هیچ حساب دیگری ذخیره نشده است."
+                                            FoxyLanguage.AR -> "لا توجد حسابات أخرى محفوظة."
+                                            FoxyLanguage.EN -> "No other saved accounts found."
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = neu.textSecondary,
+                                    )
+                                } else {
+                                    savedAccounts.forEach { acc ->
+                                        val isCurrent = acc.email.equals(currentActive, ignoreCase = true)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isCurrent) neu.accent.copy(alpha = 0.15f) else neu.background)
+                                                .border(
+                                                    1.dp,
+                                                    if (isCurrent) neu.accent else neu.textSecondary.copy(alpha = 0.15f),
+                                                    RoundedCornerShape(12.dp),
+                                                )
+                                                .clickable {
+                                                    if (!isCurrent) {
+                                                        app.tokenStore.switchToAccount(acc.email)
+                                                        Toast.makeText(
+                                                            context,
+                                                            when (s.language) {
+                                                                FoxyLanguage.FA -> "حساب فعال به ${acc.email} تغییر یافت"
+                                                                FoxyLanguage.AR -> "تم تبديل الحساب إلى ${acc.email}"
+                                                                FoxyLanguage.EN -> "Switched to ${acc.email}"
+                                                            },
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        if (state == ConnectionState.CONNECTED) {
+                                                            FoxyVpnService.reconnect(context)
+                                                        }
+                                                    }
+                                                    showAccountSwitcherDialog = false
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = acc.email,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontFamily = fonts.headingFont,
+                                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                                    ),
+                                                    color = if (isCurrent) neu.accent else neu.textPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Spacer(Modifier.height(2.dp))
+                                                val quotaDesc = when {
+                                                    acc.isUnlimited -> "سهمیه نامحدود"
+                                                    acc.quotaRemaining != null -> "${s.quotaLimitPrefix} ${s.language.formatBytesLocalized(acc.quotaRemaining)}"
+                                                    else -> "حساب رسمی موزیلا"
+                                                }
+                                                Text(
+                                                    text = quotaDesc,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = fonts.monoFont),
+                                                    color = neu.textSecondary,
+                                                )
+                                            }
+                                            if (isCurrent) {
+                                                Spacer(Modifier.width(8.dp))
+                                                Icon(
+                                                    Icons.Filled.CheckCircle,
+                                                    contentDescription = "Active",
+                                                    tint = neu.accent,
+                                                    modifier = Modifier.size(20.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showAccountSwitcherDialog = false
+                                    onOpenLogin()
+                                },
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = when (s.language) {
+                                            FoxyLanguage.FA -> "ورود با حساب جدید"
+                                            FoxyLanguage.AR -> "تسجيل بحساب جديد"
+                                            FoxyLanguage.EN -> "Add New Account"
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                        color = neu.accent,
+                                    )
+                                }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showAccountSwitcherDialog = false }) {
+                                Text(s.cancel, color = neu.textSecondary)
+                            }
+                        },
+                    )
                 }
 
                 // 4. CONNECTION STATUS & TIMER HERO:
