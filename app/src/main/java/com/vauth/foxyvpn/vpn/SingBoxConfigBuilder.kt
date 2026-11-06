@@ -131,34 +131,50 @@ object SingBoxConfigBuilder {
         servers.put(
             JSONObject()
                 .put("type", "local")
-                .put("tag", "local-dns"),
+                .put("tag", "local-dns")
+                .put("detour", "direct-out"),
         )
 
         val dohUrl = settings.effectiveDohUrl
-        val finalDnsTag =
-            if (!dohUrl.isNullOrBlank()) {
-                val parsed = runCatching { java.net.URI.create(dohUrl) }.getOrNull()
-                val host = parsed?.host?.takeIf { it.isNotBlank() }
-                if (host != null) {
-                    val port = if (parsed.port > 0) parsed.port else 443
-                    val path = parsed.rawPath?.takeIf { it.isNotBlank() } ?: "/dns-query"
-                    val dohServer =
-                        JSONObject()
-                            .put("type", "https")
-                            .put("tag", "remote-dns")
-                            .put("server", host)
-                            .put("server_port", port)
-                            .put("path", path)
-                            .put("detour", "proxy-out")
-                            .put("domain_resolver", "local-dns")
-                    servers.put(dohServer)
-                    "remote-dns"
-                } else {
-                    "local-dns"
-                }
-            } else {
-                "local-dns"
+        var finalDnsTag = "remote-dns"
+
+        if (!dohUrl.isNullOrBlank()) {
+            val parsed = runCatching { java.net.URI.create(dohUrl) }.getOrNull()
+            val host = parsed?.host?.takeIf { it.isNotBlank() }
+            if (host != null) {
+                val port = if (parsed.port > 0) parsed.port else 443
+                val path = parsed.rawPath?.takeIf { it.isNotBlank() } ?: "/dns-query"
+                val dohServer =
+                    JSONObject()
+                        .put("type", "https")
+                        .put("tag", "doh-dns")
+                        .put("server", host)
+                        .put("server_port", port)
+                        .put("path", path)
+                        .put("detour", "proxy-out")
+                        .put("domain_resolver", "local-dns")
+                servers.put(dohServer)
+                finalDnsTag = "doh-dns"
             }
+        }
+
+        // High-speed remote DNS over TCP via the VPN proxy tunnel (uncensored European resolvers)
+        servers.put(
+            JSONObject()
+                .put("type", "tcp")
+                .put("tag", "remote-dns")
+                .put("server", "1.1.1.1")
+                .put("server_port", 53)
+                .put("detour", "proxy-out"),
+        )
+        servers.put(
+            JSONObject()
+                .put("type", "tcp")
+                .put("tag", "remote-dns-backup")
+                .put("server", "8.8.8.8")
+                .put("server_port", 53)
+                .put("detour", "proxy-out"),
+        )
 
         val strategy = if (settings.ipv6Enabled) "prefer_ipv4" else "ipv4_only"
         return JSONObject()
@@ -182,13 +198,12 @@ object SingBoxConfigBuilder {
             JSONObject()
                 .put("type", "tun")
                 .put("tag", "tun-in")
-                .put("stack", "mixed")
-                .put("endpoint_independent_nat", true)
+                .put("stack", "system")
                 .put("mtu", settings.effectiveMtu)
                 .put("address", addressArr)
                 .put("dns_address", dnsAddressArr)
                 .put("auto_route", true)
-                .put("strict_route", true)
+                .put("strict_route", false)
 
         if (settings.splitTunnelMode == SettingsStore.SplitTunnelMode.INCLUDE &&
             settings.includedApps.isNotEmpty()
@@ -291,8 +306,6 @@ object SingBoxConfigBuilder {
                     .put("disable_version_fallback", false)
                     .put("dynamic_bearer_token", true)
                     .put("max_concurrent_streams", settings.maxConcurrentStreams)
-                    .put("stream_receive_window", "32 MB")
-                    .put("connection_receive_window", "64 MB")
                     .put("idle_timeout", "30s")
                     .put("keep_alive_period", "15s")
             }
@@ -312,8 +325,6 @@ object SingBoxConfigBuilder {
                     .put("disable_version_fallback", true)
                     .put("dynamic_bearer_token", true)
                     .put("max_concurrent_streams", settings.maxConcurrentStreams)
-                    .put("stream_receive_window", "32 MB")
-                    .put("connection_receive_window", "64 MB")
                     .put("idle_timeout", "30s")
                     .put("keep_alive_period", "15s")
             }

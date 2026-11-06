@@ -52,6 +52,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
@@ -752,32 +753,34 @@ fun NeumorphicSlideToConnect(
             if (maxDragPx > 0f) {
                 when (state) {
                     ConnectionState.DISCONNECTED -> {
-                        if (offsetX.value >= maxDragPx * 0.55f) {
+                        if (offsetX.value >= maxDragPx * 0.50f) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            offsetX.animateTo(maxDragPx, spring(stiffness = 500f))
-                            onRequestConnect()
-                            kotlinx.coroutines.delay(350)
-                            if (state == ConnectionState.DISCONNECTED) {
-                                offsetX.animateTo(0f, spring(stiffness = 400f))
+                            coroutineScope.launch {
+                                offsetX.animateTo(maxDragPx, spring(stiffness = 500f))
                             }
+                            onRequestConnect()
                         } else {
-                            offsetX.animateTo(0f, spring(stiffness = 500f))
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f, spring(stiffness = 500f))
+                            }
                         }
                     }
                     ConnectionState.CONNECTED -> {
-                        if (offsetX.value <= maxDragPx * 0.45f) {
+                        if (offsetX.value <= maxDragPx * 0.50f) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             isDisconnecting = true
-                            offsetX.animateTo(0f, spring(stiffness = 500f))
+                            coroutineScope.launch {
+                                offsetX.animateTo(0f, spring(stiffness = 500f))
+                            }
                             onDisconnect()
-                            kotlinx.coroutines.delay(400)
-                            isDisconnecting = false
                         } else {
-                            offsetX.animateTo(maxDragPx, spring(stiffness = 500f))
+                            coroutineScope.launch {
+                                offsetX.animateTo(maxDragPx, spring(stiffness = 500f))
+                            }
                         }
                     }
                     ConnectionState.CONNECTING -> {
-                        // During connecting, allow tap to cancel
+                        // During connecting, allow tap or drag back to cancel
                     }
                 }
             }
@@ -819,18 +822,19 @@ fun NeumorphicSlideToConnect(
             ),
         contentAlignment = Alignment.CenterStart,
     ) {
-        // Track text and guidance
+        // Track text and guidance - responsive padding ensuring text is never clipped or hidden
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
             when {
                 isDisconnecting -> {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 48.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp),
                     ) {
                         CircularProgressIndicator(
                             strokeWidth = 2.5.dp,
@@ -843,7 +847,7 @@ fun NeumorphicSlideToConnect(
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = statusColors.connecting,
                             maxLines = 1,
-                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -853,7 +857,7 @@ fun NeumorphicSlideToConnect(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 42.dp),
+                            .padding(horizontal = 18.dp),
                     ) {
                         Text(
                             text = if (hasError) s.slideToRetry else s.slideToConnect,
@@ -863,7 +867,9 @@ fun NeumorphicSlideToConnect(
                             ),
                             color = if (hasError) errorColor else neu.textPrimary.copy(alpha = pulseAlpha.coerceIn(0.75f, 1.0f)),
                             maxLines = 1,
-                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                            textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.width(8.dp))
                         Icon(
@@ -880,7 +886,7 @@ fun NeumorphicSlideToConnect(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 42.dp)
+                            .padding(horizontal = 18.dp)
                             .clickable {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onDisconnect()
@@ -897,7 +903,9 @@ fun NeumorphicSlideToConnect(
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = statusColors.connecting,
                             maxLines = 1,
-                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                            textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -907,12 +915,12 @@ fun NeumorphicSlideToConnect(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 42.dp),
+                            .padding(horizontal = 18.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = null,
-                            tint = statusColors.connected.copy(alpha = pulseAlpha.coerceIn(0.75f, 1.0f)),
+                            tint = if (neu.isDark) Color(0xFF6EE7B7) else Color(0xFF047857),
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -922,9 +930,11 @@ fun NeumorphicSlideToConnect(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.2.sp,
                             ),
-                            color = statusColors.connected,
+                            color = if (neu.isDark) Color(0xFF6EE7B7) else Color(0xFF047857),
                             maxLines = 1,
-                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                            textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -964,10 +974,6 @@ fun NeumorphicSlideToConnect(
                                     offsetX.animateTo(maxDragPx, spring(stiffness = 400f))
                                 }
                                 onRequestConnect()
-                                kotlinx.coroutines.delay(350)
-                                if (state == ConnectionState.DISCONNECTED) {
-                                    offsetX.animateTo(0f, spring(stiffness = 400f))
-                                }
                             }
                         }
                         ConnectionState.CONNECTED -> {

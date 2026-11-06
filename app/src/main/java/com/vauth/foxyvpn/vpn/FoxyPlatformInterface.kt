@@ -99,19 +99,51 @@ class FoxyPlatformInterface(
 
         if (options.autoRoute) {
             if (hasIpv4) {
-                val routes = options.inet4RouteRange
-                require(routes != null && routes.hasNext()) { "Missing IPv4 tunnel routes" }
-                while (routes.hasNext()) {
-                    val prefix = routes.next()
-                    builder.addRoute(prefix.address(), prefix.prefix())
+                var addedV4 = false
+                val range4 = runCatching { options.inet4RouteRange }.getOrNull()
+                if (range4 != null) {
+                    while (range4.hasNext()) {
+                        val prefix = range4.next()
+                        builder.addRoute(prefix.address(), prefix.prefix())
+                        addedV4 = true
+                    }
+                }
+                if (!addedV4) {
+                    val addr4 = runCatching { options.inet4RouteAddress }.getOrNull()
+                    if (addr4 != null) {
+                        while (addr4.hasNext()) {
+                            val prefix = addr4.next()
+                            builder.addRoute(prefix.address(), prefix.prefix())
+                            addedV4 = true
+                        }
+                    }
+                }
+                if (!addedV4) {
+                    builder.addRoute("0.0.0.0", 0)
                 }
             }
             if (hasIpv6) {
-                val routes = options.inet6RouteRange
-                require(routes != null && routes.hasNext()) { "Missing IPv6 tunnel routes" }
-                while (routes.hasNext()) {
-                    val prefix = routes.next()
-                    builder.addRoute(prefix.address(), prefix.prefix())
+                var addedV6 = false
+                val range6 = runCatching { options.inet6RouteRange }.getOrNull()
+                if (range6 != null) {
+                    while (range6.hasNext()) {
+                        val prefix = range6.next()
+                        builder.addRoute(prefix.address(), prefix.prefix())
+                        addedV6 = true
+                    }
+                }
+                if (!addedV6) {
+                    val addr6 = runCatching { options.inet6RouteAddress }.getOrNull()
+                    if (addr6 != null) {
+                        while (addr6.hasNext()) {
+                            val prefix = addr6.next()
+                            builder.addRoute(prefix.address(), prefix.prefix())
+                            addedV6 = true
+                        }
+                    }
+                }
+                if (!addedV6) {
+                    builder.addRoute("::", 0)
                 }
             }
             var addedDns = false
@@ -127,6 +159,8 @@ class FoxyPlatformInterface(
                 }
             }
             if (!addedDns) {
+                builder.addDnsServer("1.1.1.1")
+                builder.addDnsServer("8.8.8.8")
                 builder.addDnsServer("172.19.0.2")
                 builder.addRoute("172.19.0.2", 32)
             }

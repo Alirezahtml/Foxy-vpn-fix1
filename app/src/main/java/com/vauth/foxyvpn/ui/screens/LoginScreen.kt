@@ -327,15 +327,7 @@ fun LoginScreen(
                 Spacer(Modifier.height(20.dp))
 
                 Text(
-                    text = if (isSignUpMode) {
-                        when (s.language) {
-                            FoxyLanguage.FA -> "ساخت حساب جدید موزیلا"
-                            FoxyLanguage.AR -> "إنشاء حساب موزيلا جديد"
-                            FoxyLanguage.EN -> "Create Mozilla Account"
-                        }
-                    } else {
-                        s.loginTitle
-                    },
+                    text = s.loginTitle,
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontFamily = fonts.headingFont,
                         fontWeight = FontWeight.Bold,
@@ -345,132 +337,18 @@ fun LoginScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = if (isSignUpMode) {
-                        when (s.language) {
-                            FoxyLanguage.FA -> "می‌توانید مستقیم از همین‌جا یا از داخل سایت رسمی موزیلا در همین برنامه حساب بسازید"
-                            FoxyLanguage.AR -> "أنشئ حسابك مباشرة هنا أو عبر موقع موزيلا الرسمي داخل التطبيق"
-                            FoxyLanguage.EN -> "Create your account directly below or via the embedded Mozilla portal inside the app"
-                        }
-                    } else {
-                        s.loginSubtitle
+                    text = when (s.language) {
+                        FoxyLanguage.FA -> "ورود و ساخت حساب از طریق درگاه رسمی موزیلا؛ سهمیه و مجوز اتصال به‌صورت خودکار و کاملاً امن در برنامه تنظیم می‌شود."
+                        FoxyLanguage.AR -> "تسجيل الدخول وإنشاء الحساب عبر بوابة موزيلا الرسمية مع ضبط الحصص تلقائياً وبأمان."
+                        FoxyLanguage.EN -> "Direct official sign-in via Mozilla Accounts; quotas and tunnel credentials sync automatically."
                     },
                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = fonts.bodyFont),
                     color = neu.textSecondary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp),
                 )
 
                 Spacer(Modifier.height(20.dp))
-
-                // Sign-In / Sign-Up Segmented Switcher
-                if (!awaitingTwoFactor) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(neu.surfaceElevated)
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        val signInLabel = when (s.language) {
-                            FoxyLanguage.FA -> "ورود به حساب"
-                            FoxyLanguage.AR -> "تسجيل الدخول"
-                            FoxyLanguage.EN -> "Sign In"
-                        }
-                        val signUpLabel = when (s.language) {
-                            FoxyLanguage.FA -> "ساخت حساب جدید"
-                            FoxyLanguage.AR -> "إنشاء حساب"
-                            FoxyLanguage.EN -> "Sign Up"
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (!isSignUpMode) neu.accent else Color.Transparent)
-                                .clickable {
-                                    isSignUpMode = false
-                                    errorMessage = null
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = signInLabel,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontFamily = fonts.headingFont,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                color = if (!isSignUpMode) Color.White else neu.textSecondary,
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSignUpMode) neu.accent else Color.Transparent)
-                                .clickable {
-                                    isSignUpMode = true
-                                    errorMessage = null
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = signUpLabel,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontFamily = fonts.headingFont,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                color = if (isSignUpMode) Color.White else neu.textSecondary,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(18.dp))
-                }
-
-                // Recovery is available before authentication so a fresh install can
-                // restore the account and settings bundle without entering credentials first.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(neu.surfaceElevated.copy(alpha = 0.72f))
-                        .border(1.dp, neu.accent.copy(alpha = 0.32f), RoundedCornerShape(16.dp))
-                        .clickable(enabled = !restoringBackup) {
-                            restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                        }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        if (restoringBackup) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = neu.accent,
-                            )
-                        } else {
-                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = neu.accent, modifier = Modifier.size(19.dp))
-                        }
-                        Spacer(Modifier.width(9.dp))
-                        Text(
-                            text = when (s.language) {
-                                FoxyLanguage.FA -> "بازیابی اطلاعات و حساب‌ها"
-                                FoxyLanguage.AR -> "استعادة المعلومات والحسابات"
-                                FoxyLanguage.EN -> "Restore information and accounts"
-                            },
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontFamily = fonts.headingFont,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            color = neu.accent,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
 
                 NeumorphicCard(
                     modifier = Modifier
@@ -485,64 +363,7 @@ fun LoginScreen(
                             .padding(22.dp),
                     ) {
                         if (!awaitingTwoFactor) {
-                            // Primary In-App Mozilla Site Account Creation / Sign-In Button (WebChannel Anti-Bot Bypass)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(neu.accent.copy(alpha = 0.14f))
-                                    .border(1.5.dp, neu.accent.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
-                                    .clickable { showInAppMozillaWeb = true }
-                                    .padding(horizontal = 14.dp, vertical = 13.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Language,
-                                        contentDescription = null,
-                                        tint = neu.accent,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = if (isSignUpMode) {
-                                                when (s.language) {
-                                                    FoxyLanguage.FA -> "ساخت اکانت در سایت رسمی موزیلا (داخل برنامه)"
-                                                    FoxyLanguage.AR -> "إنشاء حساب عبر موقع موزيلا الرسمي (داخل التطبيق)"
-                                                    FoxyLanguage.EN -> "Create Account on Official Mozilla Site (In-App)"
-                                                }
-                                            } else {
-                                                when (s.language) {
-                                                    FoxyLanguage.FA -> "ورود مستقیم از درگاه وب موزیلا (بدون خطای ۴۰۶)"
-                                                    FoxyLanguage.AR -> "تسجيل الدخول عبر بوابة موزيلا الرسمية (بدون خطأ ٤٠٦)"
-                                                    FoxyLanguage.EN -> "Sign In via Official Mozilla Web Portal (406 Bypass)"
-                                                }
-                                            },
-                                            style = MaterialTheme.typography.labelLarge.copy(
-                                                fontFamily = fonts.headingFont,
-                                                fontWeight = FontWeight.Bold,
-                                            ),
-                                            color = neu.accent,
-                                        )
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            text = when (s.language) {
-                                                FoxyLanguage.FA -> "اتصال مستقیم به درگاه رسمی موزیلا و ورود خودکار به برنامه"
-                                                FoxyLanguage.AR -> "اتصال مباشر ببوابة موزيلا وتسجيل الدخول التلقائي"
-                                                FoxyLanguage.EN -> "Direct connection to Mozilla WebChannel with automatic sign-in"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = fonts.bodyFont),
-                                            color = neu.textSecondary,
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(Modifier.height(18.dp))
+                            // Primary Official Mozilla Web Portal Entry
                             NeumorphicButton(
                                 onClick = { showInAppMozillaWeb = true },
                                 accentColor = neu.accent,
@@ -551,33 +372,85 @@ fun LoginScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(vertical = 4.dp),
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Language,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(22.dp),
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(
-                                        text = if (isSignUpMode) {
-                                            when (s.language) {
-                                                FoxyLanguage.FA -> "باز کردن سایت رسمی برای ساخت حساب"
-                                                FoxyLanguage.AR -> "فتح الموقع الرسمي لإنشاء الحساب"
-                                                FoxyLanguage.EN -> "Open Official Site to Sign Up"
-                                            }
-                                        } else {
-                                            when (s.language) {
-                                                FoxyLanguage.FA -> "ورود از طریق درگاه رسمی حساب"
-                                                FoxyLanguage.AR -> "تسجيل الدخول عبر البوابة الرسمية"
-                                                FoxyLanguage.EN -> "Sign In via Official Account Portal"
-                                            }
+                                        text = when (s.language) {
+                                            FoxyLanguage.FA -> "ورود از درگاه رسمی حساب موزیلا"
+                                            FoxyLanguage.AR -> "الدخول عبر بوابة موزيلا الرسمية"
+                                            FoxyLanguage.EN -> "Sign In via Official Mozilla Portal"
                                         },
                                         style = MaterialTheme.typography.titleMedium.copy(
                                             fontFamily = fonts.headingFont,
                                             fontWeight = FontWeight.Bold,
                                         ),
                                         color = Color.White,
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                text = when (s.language) {
+                                    FoxyLanguage.FA -> "پشتیبانی کامل از ورود، ساخت حساب، رمز عبور و کد دومرحله‌ای بدون نیاز به کپی دستی توکن"
+                                    FoxyLanguage.AR -> "دعم كامل لتسجيل الدخول، إنشاء الحساب، والتحقق المزدوج تلقائياً"
+                                    FoxyLanguage.EN -> "Full support for sign-in, account creation, password and 2FA with automatic return"
+                                },
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = fonts.bodyFont),
+                                color = neu.textSecondary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            )
+
+                            Spacer(Modifier.height(18.dp))
+                            HorizontalDivider(color = neu.textSecondary.copy(alpha = 0.15f))
+                            Spacer(Modifier.height(18.dp))
+
+                            // Backup & Restore Action
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(neu.surfaceElevated)
+                                    .border(1.dp, neu.accent.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                                    .clickable(enabled = !restoringBackup) {
+                                        restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    if (restoringBackup) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = neu.accent,
+                                        )
+                                    } else {
+                                        Icon(Icons.Filled.Refresh, contentDescription = null, tint = neu.accent, modifier = Modifier.size(20.dp))
+                                    }
+                                    Spacer(Modifier.width(9.dp))
+                                    Text(
+                                        text = when (s.language) {
+                                            FoxyLanguage.FA -> "بازیابی اطلاعات و حساب‌ها (Backup)"
+                                            FoxyLanguage.AR -> "استعادة المعلومات والنسخ الاحتياطي"
+                                            FoxyLanguage.EN -> "Restore Backup & Accounts"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontFamily = fonts.headingFont,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                        color = neu.accent,
                                     )
                                 }
                             }
