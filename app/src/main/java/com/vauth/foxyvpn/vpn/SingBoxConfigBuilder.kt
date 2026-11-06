@@ -183,7 +183,6 @@ object SingBoxConfigBuilder {
                 .put("type", "tun")
                 .put("tag", "tun-in")
                 .put("stack", "mixed")
-                .put("gso", true)
                 .put("endpoint_independent_nat", true)
                 .put("mtu", settings.effectiveMtu)
                 .put("address", addressArr)
