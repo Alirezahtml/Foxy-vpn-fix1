@@ -51,8 +51,8 @@ jobs:
       - name: Fetch & Verify Sing-Box MASQUE Core (libbox.aar)
         run: |
           mkdir -p app/libs
-          LIBBOX_URL="https://github.com/Vauth/sing-box/releases/download/v1.15.0-foxy-masque.2/libbox.aar"
-          EXPECTED_SHA256="f1b59f4fab207b4c19f8ea3d145bc4dd0e834a530081d0dc045f4b795d6eac0b"
+          LIBBOX_URL="https://github.com/Vauth/sing-box/releases/download/v1.0.0-masque/libbox.aar"
+          EXPECTED_SHA256="a6a28c7f3cb53f4251d1578f4772f79831395503fdbf91920c6c1e33cc80281c"
           if [ ! -f "app/libs/libbox.aar" ] || [ "$(sha256sum app/libs/libbox.aar | awk '{print $1}')" != "$EXPECTED_SHA256" ]; then
             curl -fL --retry 3 "$LIBBOX_URL" -o app/libs/libbox.aar
           fi
@@ -144,22 +144,24 @@ jobs:
         if: always()
         run: rm -f release-keystore.jks
 
+      - name: Prune Old Workflow Artifacts to Reclaim Storage Quota
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Pruning older workflow artifacts to keep storage within free quota limits..."
+          gh api "repos/${{ github.repository }}/actions/artifacts" --paginate --jq '.artifacts[] | .id' 2>/dev/null | head -n 30 | while read -r id; do
+            [ -n "$id" ] || continue
+            echo "Deleting artifact id $id to free up storage..."
+            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$id" 2>/dev/null || true
+          done
+
       - name: Generate GitHub Build Provenance Attestation (Signature)
+        if: "!github.event.repository.private"
         continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "dist/*.apk"
-
-      - name: Upload Multi-ABI & Universal APK Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: FoxyVPN-Neu-MultiABI-APKs
-          path: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
-            dist/LICENSE.txt
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Publish Multi-ABI & Universal APKs to GitHub Releases
         uses: softprops/action-gh-release@v2
@@ -171,12 +173,24 @@ jobs:
           body: |
             ## FoxyVPN Neu v2.0.0 — Sing-Box MASQUE Core (Signed Multi-ABI Release)
             - **Package ID:** `com.vauth.foxyvpn.neu` *(نصب مستقل در کنار نسخه اصلی)*
-            - **Core Engine:** `sing-box v1.15.0-foxy-masque.2` (`HTTP/3 QUIC MASQUE`, `HTTP/2 TCP`, `HTTP/1.1 TLS`, `Auto Failover`)
+            - **Core Engine:** `sing-box v1.0.0-masque` (`HTTP/3 QUIC MASQUE`, `HTTP/2 TCP`, `HTTP/1.1 TLS`, `Auto Failover`)
             - **License:** MIT / Open-Source Licensed (`LICENSE.txt`)
-            - **GitHub Signed & Verified:** Signed with Android v1/v2/v3 APK Signature + SHA-256 Checksums (`SHA256SUMS.txt`) + GitHub Attestation
+            - **GitHub Signed & Verified:** Signed with Android v1/v2/v3 APK Signature + SHA-256 Checksums (`SHA256SUMS.txt`)
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
             dist/LICENSE.txt
           prerelease: false
           make_latest: "true"
+
+      - name: Upload Multi-ABI & Universal APK Artifacts
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoxyVPN-Neu-MultiABI-APKs
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
+          if-no-files-found: warn
+          retention-days: 1

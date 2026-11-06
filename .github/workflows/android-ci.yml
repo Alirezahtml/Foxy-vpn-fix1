@@ -151,23 +151,24 @@ jobs:
         if: always()
         run: rm -f release-keystore.jks
 
+      - name: Prune Old Workflow Artifacts to Reclaim Storage Quota
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Pruning older workflow artifacts to keep storage within free quota limits..."
+          gh api "repos/${{ github.repository }}/actions/artifacts" --paginate --jq '.artifacts[] | .id' 2>/dev/null | head -n 30 | while read -r id; do
+            [ -n "$id" ] || continue
+            echo "Deleting artifact id $id to free up storage..."
+            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$id" 2>/dev/null || true
+          done
+
       - name: Generate GitHub Build Provenance Attestation (Signature)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && !github.event.repository.private
         continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "dist/*.apk"
-
-      - name: Upload Multi-ABI & Universal APK Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: FoxyVPN-Neu-MultiABI-APKs
-          path: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
-            dist/LICENSE.txt
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Publish Multi-ABI & Universal APKs to GitHub Releases
         if: github.event_name != 'pull_request'
@@ -180,9 +181,9 @@ jobs:
           body: |
             ## FoxyVPN Neu v2.0.0 — Sing-Box MASQUE Core (Signed Multi-ABI Release)
             - **Package ID:** `com.vauth.foxyvpn.neu` *(نصب مستقل در کنار نسخه اصلی)*
-            - **Core Engine:** `sing-box v1.15.0-foxy-masque.2` (`HTTP/3 QUIC MASQUE`, `HTTP/2 TCP`, `HTTP/1.1 TLS`, `Auto Failover`)
+            - **Core Engine:** `sing-box v1.0.0-masque` (`HTTP/3 QUIC MASQUE`, `HTTP/2 TCP`, `HTTP/1.1 TLS`, `Auto Failover`)
             - **License:** MIT / Open-Source Licensed (`LICENSE.txt`)
-            - **GitHub Signed & Verified:** Signed with Android v1/v2/v3 APK Signature + SHA-256 Checksums (`SHA256SUMS.txt`) + GitHub Attestation
+            - **GitHub Signed & Verified:** Signed with Android v1/v2/v3 APK Signature + SHA-256 Checksums (`SHA256SUMS.txt`)
 
             ### دانلود بر اساس نوع پردازنده (CPU Architecture):
             - **`FoxyVPN-Neu-arm64-v8a-release.apk`** — مخصوص گوشی‌های ۶۴ بیتی جدید (ARM64-v8a - پیشنهادی برای اکثر گوشی‌ها)
@@ -197,3 +198,15 @@ jobs:
             dist/LICENSE.txt
           prerelease: false
           make_latest: "true"
+
+      - name: Upload Multi-ABI & Universal APK Artifacts
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoxyVPN-Neu-MultiABI-APKs
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
+          if-no-files-found: warn
+          retention-days: 1
