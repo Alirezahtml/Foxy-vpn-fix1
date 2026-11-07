@@ -1013,9 +1013,10 @@ fun MozillaInAppWebPortal(
     val s = currentFoxyStrings
     val fonts = currentFoxyFonts
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    val startUrl = remember(initialUrl, authRepository) {
-        if (initialUrl == MOZILLA_SIGNUP_WEB_URL && authRepository != null) {
-            authRepository.getBrowserLoginUrl()
+    // Clean official Mozilla entry URL (without rejected or deprecated parameters)
+    val startUrl = remember(initialUrl) {
+        if (initialUrl == MOZILLA_SIGNUP_WEB_URL) {
+            "https://accounts.firefox.com/"
         } else {
             initialUrl
         }
@@ -1115,7 +1116,15 @@ fun MozillaInAppWebPortal(
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         NeumorphicIconButton(
                             size = 36.dp,
-                            onClick = { webViewRef?.reload() },
+                            onClick = {
+                                runCatching {
+                                    CookieManager.getInstance().removeAllCookies(null)
+                                    CookieManager.getInstance().flush()
+                                    webViewRef?.clearCache(true)
+                                    webViewRef?.clearHistory()
+                                }
+                                webViewRef?.loadUrl("https://accounts.firefox.com/")
+                            },
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
