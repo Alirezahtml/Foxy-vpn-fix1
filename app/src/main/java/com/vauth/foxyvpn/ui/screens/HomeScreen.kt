@@ -283,12 +283,17 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(selectedProxy, state) {
+    LaunchedEffect(state) {
         if (state == ConnectionState.CONNECTED) {
-            if (pingLatency == null) {
+            while (isActive) {
                 FoxyVpnService.pingNow()
+                delay(15_000L)
             }
-        } else {
+        }
+    }
+
+    LaunchedEffect(selectedProxy, state) {
+        if (state != ConnectionState.CONNECTED) {
             val target = selectedProxy ?: app.proxyStateStore.load() ?: run {
                 val cached = app.serverListClient.loadCachedCountries()
                 ServerListClient.candidatesForCountry(cached, RECOMMENDED_COUNTRY_CODE).firstOrNull()
@@ -726,7 +731,14 @@ fun HomeScreen(
                                     FoxyLanguage.AR -> "غير محدود"
                                     FoxyLanguage.EN -> "Unlimited"
                                 }
-                                quotaRemaining != null -> s.language.formatBytesLocalized(quotaRemaining ?: 0L)
+                                quotaRemaining != null -> {
+                                    val currentRem = if (state == ConnectionState.CONNECTED) {
+                                        ((quotaRemaining ?: 0L) - liveStats.sessionBytes).coerceAtLeast(0L)
+                                    } else {
+                                        quotaRemaining ?: 0L
+                                    }
+                                    s.language.formatBytesLocalized(currentRem)
+                                }
                                 else -> when (s.language) {
                                     FoxyLanguage.FA -> "حساب فعال"
                                     FoxyLanguage.AR -> "حساب نشط"
@@ -1740,6 +1752,11 @@ fun HomeScreen(
                         val isConnected = state == ConnectionState.CONNECTED
                         val remaining = quotaRemaining
                         val max = quotaMax
+                        val dynamicRemaining = if (state == ConnectionState.CONNECTED && remaining != null) {
+                            (remaining - liveStats.sessionBytes).coerceAtLeast(0L)
+                        } else {
+                            remaining
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1929,9 +1946,9 @@ fun HomeScreen(
                             )
                             val quotaText = when {
                                 isUnlimited -> s.unlimitedQuota
-                                remaining != null && max != null ->
-                                    "${s.language.formatBytesLocalized(remaining)} / ${s.language.formatBytesLocalized(max)}"
-                                remaining != null -> s.language.formatBytesLocalized(remaining)
+                                dynamicRemaining != null && max != null ->
+                                    "${s.language.formatBytesLocalized(dynamicRemaining)} / ${s.language.formatBytesLocalized(max)}"
+                                dynamicRemaining != null -> s.language.formatBytesLocalized(dynamicRemaining)
                                 max != null -> "${s.quotaLimitPrefix} ${s.language.formatBytesLocalized(max)}"
                                 else -> "\u2014"
                             }
@@ -1949,8 +1966,8 @@ fun HomeScreen(
 
                         val rawQuotaFraction = when {
                             isUnlimited -> 1f
-                            max != null && max > 0L && remaining != null ->
-                                (remaining.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+                            max != null && max > 0L && dynamicRemaining != null ->
+                                (dynamicRemaining.toFloat() / max.toFloat()).coerceIn(0f, 1f)
                             else -> 0f
                         }
                         val animatedQuotaFraction by animateFloatAsState(

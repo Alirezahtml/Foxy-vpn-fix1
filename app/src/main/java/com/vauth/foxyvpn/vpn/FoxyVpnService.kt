@@ -395,6 +395,15 @@ class FoxyVpnService : VpnService() {
             throw IOException(err.message ?: "Failed to fetch Guardian proxy pass", err)
         }
         app.tokenStore.saveProxyPass(pass)
+        pass.quotaRemainingBytes?.let { app.settingsStore.cachedQuotaRemaining = it }
+        pass.quotaLimitBytes?.let { app.settingsStore.cachedQuotaMax = it }
+        if (pass.quotaRemainingBytes != null || pass.quotaLimitBytes != null) {
+            app.tokenStore.updateActiveAccountQuota(
+                remaining = pass.quotaRemainingBytes,
+                max = pass.quotaLimitBytes,
+                unlimited = pass.quotaLimitBytes == null,
+            )
+        }
         return pass
     }
 
